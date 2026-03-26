@@ -10,13 +10,18 @@
 
 <style>
 :root{
---bg:#050b16;
---card:#0b1324;
---text:#e6edf6;
---muted:#8b9bb4;
---line:#1c2a44;
---brand:#3b82f6;
+--bg:#020617;
+--card:#0f172a;
+--text:#e2e8f0;
+--muted:#64748b;
+--line:#1e293b;
+
+--blue:#3b82f6;
+--green:#22c55e;
+--yellow:#f59e0b;
 }
+
+*{box-sizing:border-box}
 
 body{
 margin:0;
@@ -25,16 +30,12 @@ background:var(--bg);
 color:var(--text);
 }
 
-.wrap{
-padding:12px;
-}
-
 /* HEADER */
 .header{
 display:flex;
 justify-content:space-between;
 align-items:center;
-margin-bottom:12px;
+padding:12px;
 }
 
 .title{
@@ -44,19 +45,17 @@ font-size:1.1rem;
 
 /* BOTÕES */
 .btn{
-padding:8px 10px;
+padding:10px;
 border-radius:10px;
 border:1px solid var(--line);
-background:#071226;
+background:var(--card);
 color:#fff;
-font-size:.8rem;
+cursor:pointer;
 }
 
 /* CALENDÁRIO */
-.cal-title{
-text-align:center;
-font-weight:800;
-margin:10px 0;
+.cal{
+padding:10px;
 }
 
 .cal-grid{
@@ -72,13 +71,12 @@ color:var(--muted);
 }
 
 .cal-day{
-background:#081428;
+background:var(--card);
 border:1px solid var(--line);
-border-radius:10px;
-padding:6px;
+border-radius:12px;
 min-height:70px;
 position:relative;
-font-size:.75rem;
+padding:6px;
 }
 
 .cal-day.out{
@@ -89,8 +87,8 @@ opacity:.3;
 position:absolute;
 top:4px;
 right:6px;
-font-size:.7rem;
 font-weight:700;
+font-size:.75rem;
 }
 
 .tags{
@@ -103,87 +101,109 @@ flex-wrap:wrap;
 gap:3px;
 }
 
+/* TAGS */
 .tag{
 font-size:.6rem;
 padding:2px 5px;
 border-radius:999px;
-border:1px solid var(--line);
+font-weight:700;
 }
 
-.t-pend{color:#fcd34d}
-.t-conf{color:#93c5fd}
-.t-done{color:#86efac}
+.pend{background:#78350f;color:#fcd34d}
+.conf{background:#1e3a8a;color:#93c5fd}
+.done{background:#14532d;color:#86efac}
 
-/* MOBILE */
-@media(max-width:600px){
-.cal-day{min-height:60px}
-}
 </style>
 </head>
 
 <body>
 
-<div class="wrap">
-
 <div class="header">
 <button id="prev" class="btn">◀</button>
-<div class="title" id="title"></div>
+<div class="title" id="title">Carregando...</div>
 <button id="next" class="btn">▶</button>
 </div>
 
+<div class="cal">
 <div class="cal-grid" id="dow"></div>
 <div class="cal-grid" id="grid"></div>
-
 </div>
 
 <script>
+
+/* ===== SUPABASE ===== */
 const SUPABASE_URL = "https://mybsriouiwqsdufujbsc.supabase.co"
 const SUPABASE_KEY = "sb_publishable_AUyBEIVCAMUoXwDKUmlqSw_v8EY8rVN"
 
+const supabase = window.supabase.createClient(
+SUPABASE_URL,
+SUPABASE_KEY
+)
 
-  
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
-
+/* ===== ESTADO ===== */
 const state = {
 mes:new Date().getMonth(),
 ano:new Date().getFullYear(),
 reservas:[]
 }
 
-const dow = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
-document.getElementById('dow').innerHTML = dow.map(d=>`<div class="cal-dow">${d}</div>`).join('')
+/* ===== DIAS ===== */
+const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+document.getElementById('dow').innerHTML =
+dias.map(d=>`<div class="cal-dow">${d}</div>`).join('')
+
+const meses = [
+'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'
+]
 
 const ymd = d=>{
 const z=n=>String(n).padStart(2,'0')
 return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`
 }
 
+/* ===== CARREGAR DADOS ===== */
 async function load(){
-const inicio = `${state.ano}-${String(state.mes+1).padStart(2,'0')}-01`
-const fim = `${state.ano}-${String(state.mes+2).padStart(2,'0')}-01`
 
-const {data} = await supabase
+try{
+
+const inicio =
+`${state.ano}-${String(state.mes+1).padStart(2,'0')}-01`
+
+const fim =
+`${state.ano}-${String(state.mes+2).padStart(2,'0')}-01`
+
+const {data,error} = await supabase
 .from("reservas_delicia")
 .select("*")
 .gte("datahora",inicio)
 .lt("datahora",fim)
 
+if(error){
+console.error(error)
+state.reservas=[]
+}else{
 state.reservas = data || []
+}
+
+}catch(e){
+console.error(e)
+state.reservas=[]
+}
 
 render()
 }
 
+/* ===== RENDER ===== */
 function render(){
 
-const title = document.getElementById("title")
+document.getElementById("title").textContent =
+`${meses[state.mes]} de ${state.ano}`
+
 const grid = document.getElementById("grid")
-
-const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
-
-title.textContent = `${meses[state.mes]} / ${state.ano}`
-
 grid.innerHTML=""
 
+/* início da grade */
 const first = new Date(state.ano,state.mes,1)
 const start = new Date(first)
 start.setDate(1-first.getDay())
@@ -195,44 +215,55 @@ d.setDate(start.getDate()+i)
 
 const inMonth = d.getMonth()===state.mes
 
-const items = state.reservas.filter(r=>{
+const itens = state.reservas.filter(r=>{
 if(!r.datahora) return false
 return ymd(new Date(r.datahora))===ymd(d)
 })
 
-const pend = items.filter(r=>r.status==="Pendente").length
-const conf = items.filter(r=>r.status==="Confirmada").length
-const done = items.filter(r=>r.status==="Concluída").length
+const pend = itens.filter(r=>r.status==="Pendente").length
+const conf = itens.filter(r=>r.status==="Confirmada").length
+const done = itens.filter(r=>r.status==="Concluída").length
 
 const el = document.createElement("div")
 el.className = "cal-day"+(inMonth?"":" out")
 
 el.innerHTML = `
 <div class="num">${d.getDate()}</div>
+
 <div class="tags">
-${pend?`<span class="tag t-pend">P:${pend}</span>`:""}
-${conf?`<span class="tag t-conf">C:${conf}</span>`:""}
-${done?`<span class="tag t-done">OK:${done}</span>`:""}
+${pend?`<span class="tag pend">P ${pend}</span>`:""}
+${conf?`<span class="tag conf">C ${conf}</span>`:""}
+${done?`<span class="tag done">✔ ${done}</span>`:""}
 </div>
 `
 
 grid.appendChild(el)
 }
+
 }
 
-document.getElementById("prev").onclick=()=>{
+/* ===== NAVEGAÇÃO ===== */
+document.getElementById("prev").onclick = ()=>{
 state.mes--
-if(state.mes<0){state.mes=11;state.ano--}
+if(state.mes<0){
+state.mes=11
+state.ano--
+}
 load()
 }
 
-document.getElementById("next").onclick=()=>{
+document.getElementById("next").onclick = ()=>{
 state.mes++
-if(state.mes>11){state.mes=0;state.ano++}
+if(state.mes>11){
+state.mes=0
+state.ano++
+}
 load()
 }
 
+/* ===== INICIAR ===== */
 load()
+
 </script>
 
 </body>
