@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Calendário de Reservas</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+:root{
+--bg:#050b16;
+--card:#0b1324;
+--text:#e6edf6;
+--muted:#8b9bb4;
+--line:#1c2a44;
+--brand:#3b82f6;
+}
+
+body{
+margin:0;
+font-family:Inter,system-ui;
+background:var(--bg);
+color:var(--text);
+}
+
+.wrap{
+padding:12px;
+}
+
+/* HEADER */
+.header{
+display:flex;
+justify-content:space-between;
+align-items:center;
+margin-bottom:12px;
+}
+
+.title{
+font-weight:800;
+font-size:1.1rem;
+}
+
+/* BOTÕES */
+.btn{
+padding:8px 10px;
+border-radius:10px;
+border:1px solid var(--line);
+background:#071226;
+color:#fff;
+font-size:.8rem;
+}
+
+/* CALENDÁRIO */
+.cal-title{
+text-align:center;
+font-weight:800;
+margin:10px 0;
+}
+
+.cal-grid{
+display:grid;
+grid-template-columns:repeat(7,1fr);
+gap:6px;
+}
+
+.cal-dow{
+text-align:center;
+font-size:.75rem;
+color:var(--muted);
+}
+
+.cal-day{
+background:#081428;
+border:1px solid var(--line);
+border-radius:10px;
+padding:6px;
+min-height:70px;
+position:relative;
+font-size:.75rem;
+}
+
+.cal-day.out{
+opacity:.3;
+}
+
+.num{
+position:absolute;
+top:4px;
+right:6px;
+font-size:.7rem;
+font-weight:700;
+}
+
+.tags{
+position:absolute;
+bottom:4px;
+left:4px;
+right:4px;
+display:flex;
+flex-wrap:wrap;
+gap:3px;
+}
+
+.tag{
+font-size:.6rem;
+padding:2px 5px;
+border-radius:999px;
+border:1px solid var(--line);
+}
+
+.t-pend{color:#fcd34d}
+.t-conf{color:#93c5fd}
+.t-done{color:#86efac}
+
+/* MOBILE */
+@media(max-width:600px){
+.cal-day{min-height:60px}
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+<div class="header">
+<button id="prev" class="btn">◀</button>
+<div class="title" id="title"></div>
+<button id="next" class="btn">▶</button>
+</div>
+
+<div class="cal-grid" id="dow"></div>
+<div class="cal-grid" id="grid"></div>
+
+</div>
+
+<script>
+const SUPABASE_URL = "https://mybsriouiwqsdufujbsc.supabase.co"
+const SUPABASE_KEY = "sb_publishable_AUyBEIVCAMUoXwDKUmlqSw_v8EY8rVN"
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+
+const state = {
+mes:new Date().getMonth(),
+ano:new Date().getFullYear(),
+reservas:[]
+}
+
+const dow = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+document.getElementById('dow').innerHTML = dow.map(d=>`<div class="cal-dow">${d}</div>`).join('')
+
+const ymd = d=>{
+const z=n=>String(n).padStart(2,'0')
+return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`
+}
+
+async function load(){
+const inicio = `${state.ano}-${String(state.mes+1).padStart(2,'0')}-01`
+const fim = `${state.ano}-${String(state.mes+2).padStart(2,'0')}-01`
+
+const {data} = await supabase
+.from("reservas_delicia")
+.select("*")
+.gte("datahora",inicio)
+.lt("datahora",fim)
+
+state.reservas = data || []
+
+render()
+}
+
+function render(){
+
+const title = document.getElementById("title")
+const grid = document.getElementById("grid")
+
+const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+
+title.textContent = `${meses[state.mes]} / ${state.ano}`
+
+grid.innerHTML=""
+
+const first = new Date(state.ano,state.mes,1)
+const start = new Date(first)
+start.setDate(1-first.getDay())
+
+for(let i=0;i<42;i++){
+
+const d = new Date(start)
+d.setDate(start.getDate()+i)
+
+const inMonth = d.getMonth()===state.mes
+
+const items = state.reservas.filter(r=>{
+if(!r.datahora) return false
+return ymd(new Date(r.datahora))===ymd(d)
+})
+
+const pend = items.filter(r=>r.status==="Pendente").length
+const conf = items.filter(r=>r.status==="Confirmada").length
+const done = items.filter(r=>r.status==="Concluída").length
+
+const el = document.createElement("div")
+el.className = "cal-day"+(inMonth?"":" out")
+
+el.innerHTML = `
+<div class="num">${d.getDate()}</div>
+<div class="tags">
+${pend?`<span class="tag t-pend">P:${pend}</span>`:""}
+${conf?`<span class="tag t-conf">C:${conf}</span>`:""}
+${done?`<span class="tag t-done">OK:${done}</span>`:""}
+</div>
+`
+
+grid.appendChild(el)
+}
+}
+
+document.getElementById("prev").onclick=()=>{
+state.mes--
+if(state.mes<0){state.mes=11;state.ano--}
+load()
+}
+
+document.getElementById("next").onclick=()=>{
+state.mes++
+if(state.mes>11){state.mes=0;state.ano++}
+load()
+}
+
+load()
+</script>
+
+</body>
+</html>
