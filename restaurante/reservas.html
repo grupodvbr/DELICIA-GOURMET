@@ -1061,10 +1061,9 @@ font-size:.9rem;
     <label for="mesa">Local da Reserva <span style="color:var(--danger)">*</span></label>
     <select id="mesa" name="mesa" required>
       <option value="">Selecione o local</option>
-      <option>Sala VIP 1</option>
-      <option>Sala VIP 2</option>
-      <option>Sacada</option>
-      <option>Salão Central</option>
+      <option>Salão principal 1</option>
+      <option>Salão principal 2</option>
+      <option>Varanda</option>
     </select>
   </div>
 
@@ -1075,14 +1074,6 @@ font-size:.9rem;
       <option>Buffet Ouro</option>
       <option>Buffet Diamante</option>
       <option>Buffet Master Gold</option>
-
-            <option>Experiência Oriental</option>
-            <option>Experiência Portuguesa</option>
-            <option>Experiência Italiana</option>
-            <option>Experiência Grega</option>
-
-
-      
       <option>Outro</option>
     </select>
   </div>
@@ -1253,10 +1244,9 @@ font-size:.9rem;
 <label>Local</label>
 <select id="e_mesa">
 <option value="">Selecione</option>
-<option>Sala VIP 1</option>
-<option>Sala VIP 2</option>
-<option>Sacada</option>
-<option>Salão Central</option>
+      <option>Villa Churrascada</option>
+      <option>Villa Gourmet</option>
+      <option>Sala VIP</option>
 </select>
 </div>
 
@@ -1356,8 +1346,8 @@ font-size:.9rem;
   <script>
   
 
-const SUPABASE_URL = "https://xysjlpsxgjwmhedkdgpd.supabase.co"
-const SUPABASE_KEY = "sb_publishable_sjYPsNM9PBGvsvJTQEnz_w_k6SdvNHN"
+const SUPABASE_URL = "https://mybsriouiwqsdufujbsc.supabase.co"
+const SUPABASE_KEY = "sb_publishable_AUyBEIVCAMUoXwDKUmlqSw_v8EY8rVN"
 const supabaseClient = supabase.createClient(
 SUPABASE_URL,
 SUPABASE_KEY
@@ -1433,7 +1423,7 @@ const inicio =
 const fim =
 `${ano}-${String(mes+2).padStart(2,'0')}-01`
 const {data,error} = await supabaseClient
-.from("reservas_delicia")
+.from("reservas_villa")
 .select("*")
 .gte("datahora",inicio)
 .lt("datahora",fim)
@@ -1449,7 +1439,7 @@ async cadastrar(payload){
 delete payload.id
 
 const {error} = await supabaseClient
-.from("reservas_delicia")
+.from("reservas_villa")
 .insert(payload)
 
 if(error)
@@ -1462,7 +1452,7 @@ return {ok:true,message:"Reserva salva"}
 async atualizar(id,payload){
 
 const {error} = await supabaseClient
-.from("reservas_delicia")
+.from("reservas_villa")
 .update(payload)
 .eq("id",id)
 
@@ -1476,7 +1466,7 @@ return {ok:true,message:"Atualizado"}
 async concluir(id,valorFinalPago){
 
 const {error} = await supabaseClient
-.from("reservas_delicia")
+.from("reservas_villa")
 .update({
 status:"Concluída",
 valorFinalPago:valorFinalPago
@@ -1497,7 +1487,7 @@ return {ok:false,message:"ID inválido"}
 }
 
 const {data,error} = await supabaseClient
-.from("reservas_delicia")
+.from("reservas_villa")
 .delete()
 .eq("id",String(id))
 .select()
@@ -1732,7 +1722,6 @@ pagamentos = pagamentoKeys.map((k,i)=>
 ).join("<br>")
 
 }
-
 return `
 <div class="res-item" data-id="${r.id}">
 <div class="top">
@@ -2447,7 +2436,7 @@ const id = select.dataset.id
 const novoStatus = select.value
 
 const resp = await supabaseClient
-.from("reservas_delicia")
+.from("reservas_villa")
 .update({status:novoStatus})
 .eq("id",id)
 
