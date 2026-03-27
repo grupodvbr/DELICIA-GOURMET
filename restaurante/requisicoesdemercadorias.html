@@ -215,7 +215,7 @@ const user = usuario.value.toUpperCase();
 const { data, error } = await sb
 .from("usuarios")
 .select("*")
-.eq("nome", user)
+.ilike("nome", user)
 .eq("senha", senha.value)
 .maybeSingle();
 
