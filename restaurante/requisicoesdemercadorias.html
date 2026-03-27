@@ -217,7 +217,7 @@ const { data, error } = await sb
 .select("*")
 .eq("nome", user)
 .eq("senha", senha.value)
-.single();
+.maybeSingle();
 
 if(error || !data){
 alert("Login inválido");
