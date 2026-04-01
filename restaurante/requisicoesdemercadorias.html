@@ -206,7 +206,7 @@ const sb = supabase.createClient(
 let unidade="UN";
 let usuarioAtual=null;
 let dadosUsuario=null;
-
+let produtoSelecionado = false;
 /* LOGIN */
 async function login(){
 
@@ -361,16 +361,44 @@ let { data: existente } = await sb
 
 let produto_id;
 
+let produto_id;
+
 if(!existente){
-const { data: novo } = await sb
+
+const { data: novo, error: erroInsert } = await sb
 .from("produtos_para_requisicao")
 .insert({ nome })
 .select()
 .maybeSingle();
 
-produto_id = novo.id;
+/* 🚨 SE DER ERRO (EX: 409 DUPLICADO) */
+if(erroInsert){
+
+// tenta buscar novamente
+const { data: existente2 } = await sb
+.from("produtos_para_requisicao")
+.select("*")
+.eq("nome", nome)
+.maybeSingle();
+
+if(!existente2){
+overlay.style.display="none";
+alert("Erro ao cadastrar produto");
+return;
+}
+
+produto_id = existente2.id;
+
 }else{
+
+produto_id = novo.id;
+
+}
+
+}else{
+
 produto_id = existente.id;
+
 }
 
 /* requisicao */
