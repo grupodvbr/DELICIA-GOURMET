@@ -307,6 +307,14 @@ const { data } = await sb
 
 listaProdutos.innerHTML="";
 
+if(!data || data.length === 0){
+listaProdutos.innerHTML = `
+<div class="item" style="color:#6b7280;cursor:default;">
+Nenhum produto encontrado — digite para cadastrar
+</div>`;
+return;
+}
+
 (data||[]).forEach(p=>{
 listaProdutos.innerHTML+=`
 <div class="item" onclick="selectProduto('${p.nome}')">${p.nome}</div>`;
