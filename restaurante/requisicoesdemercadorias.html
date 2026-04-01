@@ -291,7 +291,7 @@ document.getElementById("u"+u).classList.add("active");
 
 /* BUSCA */
 produto.onkeyup=async()=>{
-
+produtoSelecionado = false;
 const q=produto.value.toUpperCase();
 
 if(q.length<2){
@@ -324,6 +324,7 @@ listaProdutos.innerHTML+=`
 function selectProduto(nome){
 produto.value=nome;
 listaProdutos.innerHTML="";
+produtoSelecionado = true;
 }
 
 /* ENVIAR */
@@ -332,6 +333,19 @@ async function enviar(){
 if(!produto.value || !quantidade.value){
 alert("Preencha os campos");
 return;
+}
+
+/* VALIDAÇÃO INTELIGENTE */
+if(!produtoSelecionado){
+
+const confirmacao = confirm(
+"Produto não está na lista.\n\nDeseja cadastrar como novo produto?"
+);
+
+if(!confirmacao){
+return;
+}
+
 }
 
 overlay.style.display="flex";
