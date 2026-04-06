@@ -14,6 +14,7 @@
   --bg:#020617;
   --card:#0f172a;
   --accent:#22c55e;
+  --danger:#ef4444;
 }
 
 body{
@@ -23,14 +24,12 @@ body{
   color:#fff;
 }
 
-/* HEADER */
 header{
   padding:20px;
   font-size:22px;
   font-weight:800;
 }
 
-/* GRID */
 .container{
   padding:20px;
   display:grid;
@@ -44,7 +43,6 @@ header{
   border-radius:16px;
 }
 
-/* INPUT */
 input{
   width:100%;
   padding:12px;
@@ -55,9 +53,8 @@ input{
   color:#fff;
 }
 
-/* BOTAO */
 button{
-  margin-top:15px;
+  margin-top:10px;
   width:100%;
   padding:12px;
   border:none;
@@ -67,11 +64,22 @@ button{
   cursor:pointer;
 }
 
-/* LISTA */
 .item{
-  padding:10px;
+  padding:12px;
   border-bottom:1px solid #1e293b;
 }
+
+.link{
+  color:#22c55e;
+  font-size:12px;
+  word-break:break-all;
+}
+
+.btn-copy{
+  background:#334155;
+  margin-top:5px;
+}
+
 </style>
 </head>
 
@@ -92,7 +100,7 @@ button{
   <input id="senha" placeholder="Senha">
   <input id="logo" placeholder="URL da Logo">
 
-  <button onclick="criar()">Criar Empresa</button>
+  <button onclick="criarEmpresa()">Criar Empresa</button>
 </div>
 
 <!-- LISTA -->
@@ -105,46 +113,109 @@ button{
 
 <script>
 
-const supabase = supabase.createClient(
+// 🔥 CLIENTE SUPABASE
+const client = supabase.createClient(
   "https://mybsriouiwqsdufujbsc.supabase.co",
   "sb_publishable_AUyBEIVCAMUoXwDKUmlqSw_v8EY8rVN"
 )
 
-function gerarSlug(nome){
-  return nome.toLowerCase().replace(/\s+/g,"-")
+// 🔥 GERAR SLUG BASE
+function gerarSlugBase(nome){
+  return nome
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^a-z0-9]+/g,"-")
+    .replace(/(^-|-$)/g,"")
 }
 
-async function criar(){
+// 🔥 GARANTIR SLUG ÚNICO
+async function gerarSlugUnico(nome){
 
-  const fantasia = fantasiaInput.value
-  const razao = razaoInput.value
-  const cnpj = cnpjInput.value
-  const email = emailInput.value
-  const senha = senhaInput.value
-  const logo = logoInput.value
+  let base = gerarSlugBase(nome)
+  let slug = base
+  let contador = 1
 
-  const slug = gerarSlug(fantasia)
+  while(true){
 
-  await supabase.from("empresas").insert([{
-    nome_fantasia: fantasia,
-    razao_social: razao,
-    cnpj,
-    email,
-    senha,
-    logo_url: logo,
-    slug
-  }])
+    const { data } = await client
+      .from("empresas")
+      .select("id")
+      .eq("slug", slug)
+      .maybeSingle()
 
-  alert("Empresa criada!")
+    if(!data) return slug
 
-  carregar()
+    slug = base + "-" + contador
+    contador++
+  }
 }
 
-async function carregar(){
+// 🔥 CRIAR EMPRESA
+async function criarEmpresa(){
 
-  const { data } = await supabase
+  const fantasia = document.getElementById("fantasia").value
+  const razao = document.getElementById("razao").value
+  const cnpj = document.getElementById("cnpj").value
+  const email = document.getElementById("email").value
+  const senha = document.getElementById("senha").value
+  const logo = document.getElementById("logo").value
+
+  if(!fantasia || !cnpj || !senha){
+    alert("Preencha os campos obrigatórios")
+    return
+  }
+
+  const slug = await gerarSlugUnico(fantasia)
+
+  const { error } = await client
+    .from("empresas")
+    .insert([{
+      nome_fantasia: fantasia,
+      razao_social: razao,
+      cnpj,
+      email,
+      senha,
+      logo_url: logo,
+      slug
+    }])
+
+  if(error){
+    alert("Erro: " + error.message)
+    return
+  }
+
+  const link = `${location.origin}/empresa/${slug}`
+
+  alert("Empresa criada!\n\nLink:\n" + link)
+
+  limparCampos()
+  carregarEmpresas()
+}
+
+// 🔥 LIMPAR CAMPOS
+function limparCampos(){
+  document.getElementById("fantasia").value = ""
+  document.getElementById("razao").value = ""
+  document.getElementById("cnpj").value = ""
+  document.getElementById("email").value = ""
+  document.getElementById("senha").value = ""
+  document.getElementById("logo").value = ""
+}
+
+// 🔥 COPIAR LINK
+function copiar(texto){
+  navigator.clipboard.writeText(texto)
+  alert("Link copiado!")
+}
+
+// 🔥 LISTAR EMPRESAS
+async function carregarEmpresas(){
+
+  const { data } = await client
     .from("empresas")
     .select("*")
+    .order("created_at", { ascending:false })
 
   const lista = document.getElementById("lista")
   lista.innerHTML = ""
@@ -156,13 +227,19 @@ async function carregar(){
     lista.innerHTML += `
       <div class="item">
         <strong>${e.nome_fantasia}</strong><br>
-        <small>${link}</small>
+
+        <div class="link">${link}</div>
+
+        <button class="btn-copy" onclick="copiar('${link}')">
+          Copiar Link
+        </button>
       </div>
     `
   })
 }
 
-carregar()
+// INIT
+carregarEmpresas()
 
 </script>
 
