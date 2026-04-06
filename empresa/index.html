@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Empresa</title>
+<title>Painel da Empresa</title>
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -14,7 +14,7 @@
   --bg:#020617;
   --card:#0f172a;
   --accent:#22c55e;
-  --text:#fff;
+  --danger:#ef4444;
   --muted:#94a3b8;
 }
 
@@ -22,15 +22,15 @@ body{
   margin:0;
   font-family:Inter;
   background:var(--bg);
-  color:var(--text);
+  color:#fff;
 }
 
 /* HEADER */
 header{
-  padding:20px;
   display:flex;
-  align-items:center;
   justify-content:space-between;
+  align-items:center;
+  padding:15px 20px;
   background:#020617;
   border-bottom:1px solid #1e293b;
 }
@@ -50,74 +50,118 @@ header{
 
 .nome{
   font-weight:700;
-  font-size:18px;
 }
 
 /* CONTAINER */
 .container{
   padding:20px;
+  max-width:1200px;
+  margin:auto;
 }
 
-/* CARD */
+/* GRID */
+.grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20px;
+}
+
 .card{
   background:var(--card);
   padding:20px;
   border-radius:16px;
-  margin-bottom:20px;
 }
 
-/* STATUS */
-.badge{
-  padding:6px 12px;
+/* INPUT */
+input{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
   border-radius:10px;
+  border:none;
+  background:#020617;
+  color:#fff;
+}
+
+/* BOTÃO */
+button{
+  margin-top:10px;
+  width:100%;
+  padding:12px;
+  border:none;
+  border-radius:10px;
+  background:var(--accent);
+  font-weight:700;
+  cursor:pointer;
+}
+
+.btn-danger{
+  background:var(--danger);
+}
+
+/* LISTA */
+.item{
+  padding:12px;
+  border-bottom:1px solid #1e293b;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.badge{
+  padding:5px 10px;
+  border-radius:8px;
   font-size:12px;
-  display:inline-block;
 }
 
 .ativo{ background:#16a34a }
 .inativo{ background:#ef4444 }
 
-/* LOADING */
 .loading{
   text-align:center;
   margin-top:100px;
-  color:var(--muted);
 }
 </style>
 </head>
 
 <body>
 
-<div id="loading" class="loading">Carregando empresa...</div>
+<div id="loading" class="loading">Carregando...</div>
 
 <div id="app" style="display:none">
 
 <header>
   <div class="logo">
     <img id="logo">
-    <div>
-      <div class="nome" id="nome"></div>
-      <small id="segmento"></small>
-    </div>
+    <div class="nome" id="nome"></div>
   </div>
 
-  <div id="status"></div>
+  <button onclick="logout()">Sair</button>
 </header>
 
 <div class="container">
 
-<div class="card">
-  <h3>Informações da Empresa</h3>
+<div class="grid">
 
-  <p><strong>CNPJ:</strong> <span id="cnpj"></span></p>
-  <p><strong>Email:</strong> <span id="email"></span></p>
-  <p><strong>Telefone:</strong> <span id="telefone"></span></p>
-  <p><strong>Endereço:</strong> <span id="endereco"></span></p>
+<!-- CADASTRO -->
+<div class="card">
+  <h3>Novo Colaborador</h3>
+
+  <input id="nomeColab" placeholder="Nome completo">
+  <input id="cpfColab" placeholder="CPF">
+  <input id="cargoColab" placeholder="Cargo">
+  <input id="telColab" placeholder="Telefone">
+  <input id="emailColab" placeholder="Email">
+
+  <button onclick="salvarColaborador()">Salvar</button>
 </div>
 
+<!-- LISTA -->
 <div class="card">
   <h3>Colaboradores</h3>
-  <div id="colaboradores"></div>
+  <div id="lista"></div>
+</div>
+
 </div>
 
 </div>
@@ -132,8 +176,11 @@ const client = supabase.createClient(
   "sb_publishable_AUyBEIVCAMUoXwDKUmlqSw_v8EY8rVN"
 )
 
-// 🔥 PEGAR SLUG DA URL
-const slug = window.location.pathname.split("/").pop()
+// 🔥 PEGAR SLUG
+const params = new URLSearchParams(window.location.search)
+const slug = params.get("slug")
+
+let empresaId = null
 
 // 🔥 CARREGAR EMPRESA
 async function carregarEmpresa(){
@@ -149,54 +196,116 @@ async function carregarEmpresa(){
     return
   }
 
-  // 🔥 PREENCHER DADOS
-  document.getElementById("nome").innerText = empresa.nome_fantasia
-  document.getElementById("segmento").innerText = empresa.segmento || "-"
-  document.getElementById("cnpj").innerText = empresa.cnpj
-  document.getElementById("email").innerText = empresa.email || "-"
-  document.getElementById("telefone").innerText = empresa.telefone || "-"
-  document.getElementById("endereco").innerText = empresa.endereco || "-"
+  empresaId = empresa.id
 
+  document.getElementById("nome").innerText = empresa.nome_fantasia
   document.getElementById("logo").src =
     empresa.logo_url || "https://via.placeholder.com/45"
-
-  document.getElementById("status").innerHTML = `
-    <span class="badge ${empresa.ativo ? 'ativo':'inativo'}">
-      ${empresa.ativo ? 'Ativa':'Inativa'}
-    </span>
-  `
 
   document.getElementById("loading").style.display = "none"
   document.getElementById("app").style.display = "block"
 
-  carregarColaboradores(empresa.id)
+  carregarColaboradores()
 }
 
-// 🔥 CARREGAR COLABORADORES
-async function carregarColaboradores(empresa_id){
+// 🔥 SALVAR COLABORADOR
+async function salvarColaborador(){
+
+  const nome = document.getElementById("nomeColab").value
+  const cpf = document.getElementById("cpfColab").value
+  const cargo = document.getElementById("cargoColab").value
+  const telefone = document.getElementById("telColab").value
+  const email = document.getElementById("emailColab").value
+
+  await client.from("colaboradores").insert([{
+    empresa_id: empresaId,
+    nome,
+    cpf,
+    cargo,
+    telefone,
+    email
+  }])
+
+  limpar()
+  carregarColaboradores()
+}
+
+// 🔥 LISTAR COLABORADORES
+async function carregarColaboradores(){
 
   const { data } = await client
     .from("colaboradores")
     .select("*")
-    .eq("empresa_id", empresa_id)
+    .eq("empresa_id", empresaId)
 
-  const lista = document.getElementById("colaboradores")
+  const lista = document.getElementById("lista")
   lista.innerHTML = ""
-
-  if(!data.length){
-    lista.innerHTML = "<small>Nenhum colaborador cadastrado</small>"
-    return
-  }
 
   data.forEach(c => {
 
     lista.innerHTML += `
-      <div style="padding:10px;border-bottom:1px solid #1e293b">
-        <strong>${c.nome}</strong><br>
-        <small>${c.cargo || "-"}</small>
+      <div class="item">
+
+        <div>
+          <strong>${c.nome}</strong><br>
+          <small>${c.cargo || "-"}</small>
+        </div>
+
+        <div>
+          <span class="badge ${c.ativo ? 'ativo':'inativo'}">
+            ${c.ativo ? 'Ativo':'Inativo'}
+          </span>
+
+          <button onclick="toggle('${c.id}', ${c.ativo})">
+            ${c.ativo ? 'Desativar':'Ativar'}
+          </button>
+
+          <button class="btn-danger" onclick="remover('${c.id}')">
+            Excluir
+          </button>
+        </div>
+
       </div>
     `
   })
+}
+
+// 🔥 ATIVAR / DESATIVAR
+async function toggle(id, status){
+
+  await client
+    .from("colaboradores")
+    .update({ ativo: !status })
+    .eq("id", id)
+
+  carregarColaboradores()
+}
+
+// 🔥 REMOVER
+async function remover(id){
+
+  if(!confirm("Excluir colaborador?")) return
+
+  await client
+    .from("colaboradores")
+    .delete()
+    .eq("id", id)
+
+  carregarColaboradores()
+}
+
+// 🔥 LIMPAR CAMPOS
+function limpar(){
+  document.getElementById("nomeColab").value = ""
+  document.getElementById("cpfColab").value = ""
+  document.getElementById("cargoColab").value = ""
+  document.getElementById("telColab").value = ""
+  document.getElementById("emailColab").value = ""
+}
+
+// 🔥 LOGOUT (simples)
+function logout(){
+  location.href = "/"
 }
 
 // INIT
