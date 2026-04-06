@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Empresa • Sistema de Descontos</title>
+<title>Empresa</title>
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -11,10 +11,10 @@
 
 <style>
 :root{
-  --bg:#0f172a;
-  --card:#1e293b;
+  --bg:#020617;
+  --card:#0f172a;
   --accent:#22c55e;
-  --text:#ffffff;
+  --text:#fff;
   --muted:#94a3b8;
 }
 
@@ -25,52 +25,14 @@ body{
   color:var(--text);
 }
 
-/* LOGIN */
-.login{
-  max-width:420px;
-  margin:100px auto;
-  background:var(--card);
-  padding:30px;
-  border-radius:16px;
-}
-
-.login h2{
-  margin-bottom:20px;
-}
-
-input{
-  width:100%;
-  padding:14px;
-  border-radius:10px;
-  border:none;
-  margin-top:10px;
-  background:#0f172a;
-  color:#fff;
-}
-
-button{
-  width:100%;
-  padding:14px;
-  margin-top:15px;
-  border:none;
-  border-radius:10px;
-  background:var(--accent);
-  font-weight:700;
-  cursor:pointer;
-}
-
-/* DASHBOARD */
-.dashboard{
-  display:none;
-}
-
 /* HEADER */
 header{
-  background:#020617;
-  padding:15px 20px;
+  padding:20px;
   display:flex;
   align-items:center;
   justify-content:space-between;
+  background:#020617;
+  border-bottom:1px solid #1e293b;
 }
 
 .logo{
@@ -80,11 +42,18 @@ header{
 }
 
 .logo img{
-  width:40px;
-  height:40px;
-  border-radius:10px;
+  width:45px;
+  height:45px;
+  border-radius:12px;
+  object-fit:cover;
 }
 
+.nome{
+  font-weight:700;
+  font-size:18px;
+}
+
+/* CONTAINER */
 .container{
   padding:20px;
 }
@@ -97,170 +66,141 @@ header{
   margin-bottom:20px;
 }
 
-/* LISTA */
-.item{
-  padding:15px;
-  border-bottom:1px solid #334155;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-}
-
+/* STATUS */
 .badge{
-  padding:5px 10px;
-  border-radius:8px;
+  padding:6px 12px;
+  border-radius:10px;
   font-size:12px;
+  display:inline-block;
 }
 
 .ativo{ background:#16a34a }
 .inativo{ background:#ef4444 }
 
+/* LOADING */
+.loading{
+  text-align:center;
+  margin-top:100px;
+  color:var(--muted);
+}
 </style>
 </head>
 
 <body>
 
-<!-- LOGIN -->
-<div class="login" id="loginBox">
-  <h2>Login da Empresa</h2>
-  <input id="cnpj" placeholder="CNPJ">
-  <input id="senha" placeholder="Senha">
-  <button onclick="login()">Entrar</button>
-</div>
+<div id="loading" class="loading">Carregando empresa...</div>
 
-<!-- DASHBOARD -->
-<div class="dashboard" id="dashboard">
+<div id="app" style="display:none">
 
 <header>
   <div class="logo">
-    <img id="logoEmpresa">
-    <div id="nomeEmpresa"></div>
+    <img id="logo">
+    <div>
+      <div class="nome" id="nome"></div>
+      <small id="segmento"></small>
+    </div>
   </div>
-  <button onclick="logout()">Sair</button>
+
+  <div id="status"></div>
 </header>
 
 <div class="container">
 
 <div class="card">
-  <h3>Cadastrar Colaborador</h3>
+  <h3>Informações da Empresa</h3>
 
-  <input id="nome" placeholder="Nome completo">
-  <input id="cpf" placeholder="CPF">
-  <input id="cargo" placeholder="Cargo">
-
-  <button onclick="salvar()">Salvar</button>
+  <p><strong>CNPJ:</strong> <span id="cnpj"></span></p>
+  <p><strong>Email:</strong> <span id="email"></span></p>
+  <p><strong>Telefone:</strong> <span id="telefone"></span></p>
+  <p><strong>Endereço:</strong> <span id="endereco"></span></p>
 </div>
 
 <div class="card">
   <h3>Colaboradores</h3>
-  <div id="lista"></div>
+  <div id="colaboradores"></div>
 </div>
 
 </div>
+
 </div>
 
 <script>
 
-const supabase = supabase.createClient(
+// 🔥 SUPABASE
+const client = supabase.createClient(
   "https://mybsriouiwqsdufujbsc.supabase.co",
   "sb_publishable_AUyBEIVCAMUoXwDKUmlqSw_v8EY8rVN"
 )
 
+// 🔥 PEGAR SLUG DA URL
 const slug = window.location.pathname.split("/").pop()
 
-async function login(){
+// 🔥 CARREGAR EMPRESA
+async function carregarEmpresa(){
 
-  const cnpj = document.getElementById("cnpj").value
-  const senha = document.getElementById("senha").value
-
-  const { data } = await supabase
+  const { data: empresa } = await client
     .from("empresas")
     .select("*")
     .eq("slug", slug)
-    .eq("cnpj", cnpj)
-    .eq("senha", senha)
     .single()
 
-  if(!data){
-    alert("Dados inválidos")
+  if(!empresa){
+    document.getElementById("loading").innerText = "Empresa não encontrada"
     return
   }
 
-  localStorage.setItem("empresa_id", data.id)
-  localStorage.setItem("empresa_nome", data.nome_fantasia)
-  localStorage.setItem("empresa_logo", data.logo_url)
+  // 🔥 PREENCHER DADOS
+  document.getElementById("nome").innerText = empresa.nome_fantasia
+  document.getElementById("segmento").innerText = empresa.segmento || "-"
+  document.getElementById("cnpj").innerText = empresa.cnpj
+  document.getElementById("email").innerText = empresa.email || "-"
+  document.getElementById("telefone").innerText = empresa.telefone || "-"
+  document.getElementById("endereco").innerText = empresa.endereco || "-"
 
-  iniciar()
+  document.getElementById("logo").src =
+    empresa.logo_url || "https://via.placeholder.com/45"
+
+  document.getElementById("status").innerHTML = `
+    <span class="badge ${empresa.ativo ? 'ativo':'inativo'}">
+      ${empresa.ativo ? 'Ativa':'Inativa'}
+    </span>
+  `
+
+  document.getElementById("loading").style.display = "none"
+  document.getElementById("app").style.display = "block"
+
+  carregarColaboradores(empresa.id)
 }
 
-function iniciar(){
+// 🔥 CARREGAR COLABORADORES
+async function carregarColaboradores(empresa_id){
 
-  document.getElementById("loginBox").style.display = "none"
-  document.getElementById("dashboard").style.display = "block"
-
-  document.getElementById("nomeEmpresa").innerText =
-    localStorage.getItem("empresa_nome")
-
-  document.getElementById("logoEmpresa").src =
-    localStorage.getItem("empresa_logo") || "https://via.placeholder.com/40"
-
-  carregar()
-}
-
-function logout(){
-  localStorage.clear()
-  location.reload()
-}
-
-async function salvar(){
-
-  const empresa_id = localStorage.getItem("empresa_id")
-
-  await supabase
-    .from("colaboradores")
-    .insert([{
-      empresa_id,
-      nome: nome.value,
-      cpf: cpf.value,
-      cargo: cargo.value
-    }])
-
-  carregar()
-}
-
-async function carregar(){
-
-  const empresa_id = localStorage.getItem("empresa_id")
-
-  const { data } = await supabase
+  const { data } = await client
     .from("colaboradores")
     .select("*")
     .eq("empresa_id", empresa_id)
 
-  const lista = document.getElementById("lista")
+  const lista = document.getElementById("colaboradores")
   lista.innerHTML = ""
+
+  if(!data.length){
+    lista.innerHTML = "<small>Nenhum colaborador cadastrado</small>"
+    return
+  }
 
   data.forEach(c => {
 
     lista.innerHTML += `
-      <div class="item">
-        <div>
-          <strong>${c.nome}</strong><br>
-          <small>${c.cargo}</small>
-        </div>
-
-        <div class="badge ${c.ativo ? 'ativo':'inativo'}">
-          ${c.ativo ? 'Ativo':'Inativo'}
-        </div>
+      <div style="padding:10px;border-bottom:1px solid #1e293b">
+        <strong>${c.nome}</strong><br>
+        <small>${c.cargo || "-"}</small>
       </div>
     `
   })
 }
 
-// AUTO LOGIN
-if(localStorage.getItem("empresa_id")){
-  iniciar()
-}
+// INIT
+carregarEmpresa()
 
 </script>
 
