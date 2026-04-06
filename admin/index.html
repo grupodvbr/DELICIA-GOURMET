@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Admin • Sistema SaaS</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+:root{
+  --bg:#020617;
+  --card:#0f172a;
+  --accent:#22c55e;
+}
+
+body{
+  margin:0;
+  font-family:Inter;
+  background:var(--bg);
+  color:#fff;
+}
+
+/* HEADER */
+header{
+  padding:20px;
+  font-size:22px;
+  font-weight:800;
+}
+
+/* GRID */
+.container{
+  padding:20px;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20px;
+}
+
+.card{
+  background:var(--card);
+  padding:20px;
+  border-radius:16px;
+}
+
+/* INPUT */
+input{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  border-radius:10px;
+  border:none;
+  background:#020617;
+  color:#fff;
+}
+
+/* BOTAO */
+button{
+  margin-top:15px;
+  width:100%;
+  padding:12px;
+  border:none;
+  border-radius:10px;
+  background:var(--accent);
+  font-weight:700;
+  cursor:pointer;
+}
+
+/* LISTA */
+.item{
+  padding:10px;
+  border-bottom:1px solid #1e293b;
+}
+</style>
+</head>
+
+<body>
+
+<header>👑 Administração do Sistema</header>
+
+<div class="container">
+
+<!-- CADASTRO -->
+<div class="card">
+  <h3>Nova Empresa</h3>
+
+  <input id="fantasia" placeholder="Nome Fantasia">
+  <input id="razao" placeholder="Razão Social">
+  <input id="cnpj" placeholder="CNPJ">
+  <input id="email" placeholder="Email">
+  <input id="senha" placeholder="Senha">
+  <input id="logo" placeholder="URL da Logo">
+
+  <button onclick="criar()">Criar Empresa</button>
+</div>
+
+<!-- LISTA -->
+<div class="card">
+  <h3>Empresas</h3>
+  <div id="lista"></div>
+</div>
+
+</div>
+
+<script>
+
+const supabase = supabase.createClient(
+  "https://mybsriouiwqsdufujbsc.supabase.co",
+  "sb_publishable_AUyBEIVCAMUoXwDKUmlqSw_v8EY8rVN"
+)
+
+function gerarSlug(nome){
+  return nome.toLowerCase().replace(/\s+/g,"-")
+}
+
+async function criar(){
+
+  const fantasia = fantasiaInput.value
+  const razao = razaoInput.value
+  const cnpj = cnpjInput.value
+  const email = emailInput.value
+  const senha = senhaInput.value
+  const logo = logoInput.value
+
+  const slug = gerarSlug(fantasia)
+
+  await supabase.from("empresas").insert([{
+    nome_fantasia: fantasia,
+    razao_social: razao,
+    cnpj,
+    email,
+    senha,
+    logo_url: logo,
+    slug
+  }])
+
+  alert("Empresa criada!")
+
+  carregar()
+}
+
+async function carregar(){
+
+  const { data } = await supabase
+    .from("empresas")
+    .select("*")
+
+  const lista = document.getElementById("lista")
+  lista.innerHTML = ""
+
+  data.forEach(e => {
+
+    const link = `${location.origin}/empresa/${e.slug}`
+
+    lista.innerHTML += `
+      <div class="item">
+        <strong>${e.nome_fantasia}</strong><br>
+        <small>${link}</small>
+      </div>
+    `
+  })
+}
+
+carregar()
+
+</script>
+
+</body>
+</html>
