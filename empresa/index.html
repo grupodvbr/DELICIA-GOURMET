@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Empresa • Sistema de Descontos</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+:root{
+  --bg:#0f172a;
+  --card:#1e293b;
+  --accent:#22c55e;
+  --text:#ffffff;
+  --muted:#94a3b8;
+}
+
+body{
+  margin:0;
+  font-family:Inter;
+  background:var(--bg);
+  color:var(--text);
+}
+
+/* LOGIN */
+.login{
+  max-width:420px;
+  margin:100px auto;
+  background:var(--card);
+  padding:30px;
+  border-radius:16px;
+}
+
+.login h2{
+  margin-bottom:20px;
+}
+
+input{
+  width:100%;
+  padding:14px;
+  border-radius:10px;
+  border:none;
+  margin-top:10px;
+  background:#0f172a;
+  color:#fff;
+}
+
+button{
+  width:100%;
+  padding:14px;
+  margin-top:15px;
+  border:none;
+  border-radius:10px;
+  background:var(--accent);
+  font-weight:700;
+  cursor:pointer;
+}
+
+/* DASHBOARD */
+.dashboard{
+  display:none;
+}
+
+/* HEADER */
+header{
+  background:#020617;
+  padding:15px 20px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+
+.logo{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.logo img{
+  width:40px;
+  height:40px;
+  border-radius:10px;
+}
+
+.container{
+  padding:20px;
+}
+
+/* CARD */
+.card{
+  background:var(--card);
+  padding:20px;
+  border-radius:16px;
+  margin-bottom:20px;
+}
+
+/* LISTA */
+.item{
+  padding:15px;
+  border-bottom:1px solid #334155;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.badge{
+  padding:5px 10px;
+  border-radius:8px;
+  font-size:12px;
+}
+
+.ativo{ background:#16a34a }
+.inativo{ background:#ef4444 }
+
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div class="login" id="loginBox">
+  <h2>Login da Empresa</h2>
+  <input id="cnpj" placeholder="CNPJ">
+  <input id="senha" placeholder="Senha">
+  <button onclick="login()">Entrar</button>
+</div>
+
+<!-- DASHBOARD -->
+<div class="dashboard" id="dashboard">
+
+<header>
+  <div class="logo">
+    <img id="logoEmpresa">
+    <div id="nomeEmpresa"></div>
+  </div>
+  <button onclick="logout()">Sair</button>
+</header>
+
+<div class="container">
+
+<div class="card">
+  <h3>Cadastrar Colaborador</h3>
+
+  <input id="nome" placeholder="Nome completo">
+  <input id="cpf" placeholder="CPF">
+  <input id="cargo" placeholder="Cargo">
+
+  <button onclick="salvar()">Salvar</button>
+</div>
+
+<div class="card">
+  <h3>Colaboradores</h3>
+  <div id="lista"></div>
+</div>
+
+</div>
+</div>
+
+<script>
+
+const supabase = supabase.createClient(
+  "https://mybsriouiwqsdufujbsc.supabase.co",
+  "sb_publishable_AUyBEIVCAMUoXwDKUmlqSw_v8EY8rVN"
+)
+
+const slug = window.location.pathname.split("/").pop()
+
+async function login(){
+
+  const cnpj = document.getElementById("cnpj").value
+  const senha = document.getElementById("senha").value
+
+  const { data } = await supabase
+    .from("empresas")
+    .select("*")
+    .eq("slug", slug)
+    .eq("cnpj", cnpj)
+    .eq("senha", senha)
+    .single()
+
+  if(!data){
+    alert("Dados inválidos")
+    return
+  }
+
+  localStorage.setItem("empresa_id", data.id)
+  localStorage.setItem("empresa_nome", data.nome_fantasia)
+  localStorage.setItem("empresa_logo", data.logo_url)
+
+  iniciar()
+}
+
+function iniciar(){
+
+  document.getElementById("loginBox").style.display = "none"
+  document.getElementById("dashboard").style.display = "block"
+
+  document.getElementById("nomeEmpresa").innerText =
+    localStorage.getItem("empresa_nome")
+
+  document.getElementById("logoEmpresa").src =
+    localStorage.getItem("empresa_logo") || "https://via.placeholder.com/40"
+
+  carregar()
+}
+
+function logout(){
+  localStorage.clear()
+  location.reload()
+}
+
+async function salvar(){
+
+  const empresa_id = localStorage.getItem("empresa_id")
+
+  await supabase
+    .from("colaboradores")
+    .insert([{
+      empresa_id,
+      nome: nome.value,
+      cpf: cpf.value,
+      cargo: cargo.value
+    }])
+
+  carregar()
+}
+
+async function carregar(){
+
+  const empresa_id = localStorage.getItem("empresa_id")
+
+  const { data } = await supabase
+    .from("colaboradores")
+    .select("*")
+    .eq("empresa_id", empresa_id)
+
+  const lista = document.getElementById("lista")
+  lista.innerHTML = ""
+
+  data.forEach(c => {
+
+    lista.innerHTML += `
+      <div class="item">
+        <div>
+          <strong>${c.nome}</strong><br>
+          <small>${c.cargo}</small>
+        </div>
+
+        <div class="badge ${c.ativo ? 'ativo':'inativo'}">
+          ${c.ativo ? 'Ativo':'Inativo'}
+        </div>
+      </div>
+    `
+  })
+}
+
+// AUTO LOGIN
+if(localStorage.getItem("empresa_id")){
+  iniciar()
+}
+
+</script>
+
+</body>
+</html>
