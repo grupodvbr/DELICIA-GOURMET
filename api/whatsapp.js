@@ -11,18 +11,18 @@ const supabase = createClient(
 )
 const ADMINS = [
   "557798253249",
-  "557798315510"
+  "557798315510",
+  "557781293963",
+  "5577981291635"
 ]
 
 
 
 
 const TEMPLATES_PERMITIDOS = [
-"confirmao_reserva",
-"lembrete_reserva",
-"confirmacao_pedido",
-"video_mercatto",
-"reserva_especial" // 👈 FALTAVA ISSO
+"confirmao_de_reserva",
+"reserva_especial",
+"hello_world"
 ]
 
 
@@ -269,6 +269,41 @@ return item.produto_nome
 
 return null
 }
+
+
+
+
+
+/* ================= ENCONTRAR PRATO COM FOTO ================= */
+
+function encontrarPratoComFoto(cardapio, texto){
+
+  const textoLimpo = normalizar(texto)
+
+  for(const item of cardapio){
+
+    if(!item.foto_url) continue // 🔥 IGNORA PRATO SEM FOTO
+
+    const nome = normalizar(item.nome)
+
+    if(nome.includes(textoLimpo)){
+      return item
+    }
+
+  }
+
+  return null
+}
+
+
+
+
+
+
+
+
+
+
 /* ================= CLASSIFICAR MENSAGEM ================= */
 
 async function classificarMensagem(texto){
@@ -300,7 +335,63 @@ Responda apenas com UMA palavra.
     .toLowerCase()
     .trim()
 }
+async function baixarESalvarMidia(mediaId, extensao, mime){
 
+  try{
+
+    const mediaInfo = await fetch(
+      `https://graph.facebook.com/v19.0/${mediaId}`,
+      {
+        headers:{
+          Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`
+        }
+      }
+    )
+
+    const mediaJson = await mediaInfo.json()
+
+    const fileRes = await fetch(mediaJson.url,{
+      headers:{
+        Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`
+      }
+    })
+
+const buffer = Buffer.from(await fileRes.arrayBuffer())
+    const fileName = `whatsapp/${Date.now()}.${extensao}`
+
+    const { error } = await supabase.storage
+      .from("buffet_whatsa_mercatto")
+      .upload(fileName, buffer, {
+        contentType: mime
+      })
+
+    if(error){
+      console.log("❌ ERRO UPLOAD:", error)
+      return null
+    }
+
+    const { data } = supabase.storage
+      .from("buffet_whatsa_mercatto")
+      .getPublicUrl(fileName)
+
+const publicUrl = data.publicUrl
+
+if(!publicUrl){
+  console.log("❌ URL NÃO GERADA")
+  return null
+}
+
+console.log("🌍 URL FINAL:", publicUrl)
+
+return publicUrl
+
+
+    
+  }catch(err){
+    console.log("❌ ERRO MIDIA:", err)
+    return null
+  }
+}
 
 
 
@@ -330,7 +421,7 @@ return res.status(403).end()
 
 if(req.method === "POST" && req.body?.admin_chat){
 
-if(req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`){
+if(req.headers.authorization !== `Bearer ${process.env.ADMIN_TOKEN}`){
 return res.status(403).json({erro:"Acesso negado"})
 }
 
@@ -345,6 +436,10 @@ model:"gpt-4.1-mini",
 messages:[
 
 {
+
+
+
+  
 role:"system",
 content:`
 Você é o agente administrador do Mercatto Delícia.
@@ -365,6 +460,22 @@ Responda sempre de forma clara e direta.
 `
 },
 
+
+{
+role:"system",
+content:`
+REGRAS CRÍTICAS DE CONVERSA
+
+- Nunca repita respostas
+- Nunca envie promoções sem o cliente demonstrar interesse
+- Se o cliente mudar de assunto, abandone o anterior
+- Responda apenas o que foi perguntado
+- Seja natural e direto (como humano)
+`
+},
+
+
+  
 {
 role:"user",
 content:pergunta
@@ -374,8 +485,18 @@ content:pergunta
 
 })
 
+const respostaAdmin = completion.choices[0].message.content
+
+/* 🔥 SALVAR APRENDIZADO */
+await supabase
+.from("aprendizado_bot")
+.insert({
+  pergunta: pergunta,
+  resposta: respostaAdmin
+})
+
 return res.json({
-resposta: completion.choices[0].message.content
+  resposta: respostaAdmin
 })
 
 }
@@ -400,26 +521,129 @@ return res.status(200).end()
 
 /* IGNORA EVENTOS DE STATUS */
 
+/* ================= TRATAR STATUS ================= */
+
+if(change.statuses){
+
+  const status = change.statuses[0]
+
+  console.log("📩 STATUS RECEBIDO:", status.status)
+
+  await supabase
+  .from("conversas_whatsapp")
+  .update({
+    status: status.status // sent, delivered, read
+  })
+  .eq("message_id", status.id)
+
+  return res.status(200).end()
+}
+
+/* ================= CONTINUA NORMAL ================= */
+
 if(!change.messages){
-console.log("Evento sem mensagem (status)")
-return res.status(200).end()
+  return res.status(200).end()
 }
 
 const mensagensRecebidas = change.messages || []
 
+if(!mensagensRecebidas.length){
+  console.log("⚠️ SEM MENSAGEM")
+  return res.status(200).end()
+}
+
+const msg = mensagensRecebidas[0]
+
+console.log("📩 TIPO RECEBIDO:", msg.type)
+
+
+  
 // ignora mensagens do próprio bot
 if(mensagensRecebidas[0]?.from === change.metadata.phone_number_id){
 console.log("Mensagem do próprio bot ignorada")
 return res.status(200).end()
 }
 
-const mensagensTexto = mensagensRecebidas
-  .map(m => m.text?.body)
-  .filter(Boolean)
 
-const mensagem = mensagensTexto.join(" ")
+let mensagem = ""
+let tipo = "texto"
+let media_url = null
+let nome_arquivo = null
+
+/* ================= SWITCH CORRETO ================= */
+
+switch(msg.type){
+
+  case "text":
+    mensagem = msg.text?.body || ""
+  break
+
+case "image":
+
+  tipo = "imagem"
+  mensagem = "[Imagem]"
+
+  console.log("🖼️ IMAGEM RECEBIDA")
+
+  // 🔥 SEMPRE baixar e salvar
+  media_url = await baixarESalvarMidia(
+    msg.image.id,
+    "jpg",
+    msg.image.mime_type || "image/jpeg"
+  )
+
+break
+
+  case "video":
+    tipo = "video"
+    mensagem = "[Vídeo]"
+
+    media_url = await baixarESalvarMidia(
+      msg.video.id,
+      "mp4",
+      msg.video.mime_type || "video/mp4"
+    )
+  break
+
+  case "audio":
+    tipo = "audio"
+    mensagem = "[Áudio]"
+
+    media_url = await baixarESalvarMidia(
+      msg.audio.id,
+      "ogg",
+      msg.audio.mime_type || "audio/ogg"
+    )
+  break
+
+  case "document":
+    tipo = "documento"
+
+    nome_arquivo = msg.document.filename || "arquivo"
+
+    mensagem = `[Documento: ${nome_arquivo}]`
+
+    const ext = nome_arquivo.split(".").pop() || "bin"
+
+    media_url = await baixarESalvarMidia(
+      msg.document.id,
+      ext,
+      msg.document.mime_type
+    )
+  break
+
+  default:
+    console.log("⚠️ TIPO NÃO TRATADO:", msg.type)
+}
+
+
+
+
+  
+
 
 const cliente = mensagensRecebidas[0]?.from
+  const isAdmin = ADMINS.includes(cliente)
 const message_id = mensagensRecebidas[0]?.id
 /* ================= VERIFICAR PAUSA BOT ================= */
 
@@ -468,46 +692,122 @@ return res.status(200).end()
 }
 
 const texto = mensagem.toLowerCase()
+/* ================= ADMIN RESPONDENDO CLIENTE ================= */
+
+if(isAdmin){
+
+  console.log("👨‍💼 MENSAGEM DO ADMIN DETECTADA")
+
+  /* 🔥 BUSCAR ÚLTIMA DÚVIDA */
+const match = mensagem.match(/^([a-z0-9\-]+)\s+([\s\S]+)/i)
+
+if(!match){
+  console.log("❌ ADMIN NÃO INFORMOU ID")
+  return res.status(200).end()
+}
+
+const id = match[1]
+const respostaAdmin = match[2]
+
+const { data: duvida } = await supabase
+.from("duvidas_pendentes")
+.select("*")
+.eq("id", id)
+.maybeSingle()
+
+if(!duvida){
+  console.log("❌ DÚVIDA NÃO ENCONTRADA")
+  return res.status(200).end()
+}
+
+const telefoneCliente = duvida.telefone
+
+  /* 🔥 SALVAR APRENDIZADO */
+await supabase
+.from("aprendizado_bot")
+.insert({
+  pergunta: duvida.pergunta,
+  resposta: respostaAdmin
+})
+
+  console.log("🧠 APRENDIZADO SALVO")
+
+  /* 🔥 RESPONDER CLIENTE */
+  await fetch(url,{
+    method:"POST",
+    headers:{
+      Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+      "Content-Type":"application/json"
+    },
+body:JSON.stringify({
+  messaging_product:"whatsapp",
+  to: telefoneCliente,
+  type:"text",
+  text:{ body: respostaAdmin }
+})
+  })
+
+  console.log("📤 RESPOSTA ENVIADA PARA CLIENTE")
+
+  /* 🔥 LIMPAR DÚVIDA */
+await supabase
+.from("duvidas_pendentes")
+.delete()
+.eq("id", id)
+
+  return res.status(200).end()
+}
+  
 const textoNormalizado = normalizar(texto)
+
+/* ================= FORÇAR PROMOÇÕES ================= */
+
+const querPromocao =
+textoNormalizado.includes("promo") ||
+textoNormalizado.includes("oferta") ||
+textoNormalizado.includes("rodizio") ||
+textoNormalizado.includes("rodízio") ||
+textoNormalizado.includes("desconto") ||
+textoNormalizado.includes("oriental") ||
+textoNormalizado.includes("italiano") ||
+textoNormalizado.includes("happy") ||
+textoNormalizado.includes("tem rodizio") ||
+textoNormalizado.includes("tem rodízio") ||
+textoNormalizado.includes("tem promoção") ||
+textoNormalizado.includes("tem promocao") ||
+textoNormalizado.includes("vende oriental") ||
+textoNormalizado.includes("todo dia")
+
+const hojeInicio = getHojeBahia() + "T00:00"
+const hojeFim = getHojeBahia() + "T23:59"
+
+const { data: promosHoje } = await supabase
+.from("conversas_whatsapp")
+.select("mensagem")
+.eq("telefone", cliente)
+.eq("role", "assistant")
+.gte("created_at", hojeInicio)
+.lte("created_at", hojeFim)
+.ilike("mensagem", "%PROMO%")
+
+const { data: controlePromo } = await supabase
+.from("controle_envio")
+.select("*")
+.eq("telefone", cliente)
+.eq("tipo", "promo")
+.eq("data", getHojeBahia())
+.maybeSingle()
+
+const jaEnviouPromoHoje = !!controlePromo
+
+
+  
+const bloqueiaPromo = false
 
 /* ================= DETECTAR NOME INTELIGENTE ================= */
 
 let nomeDetectado = null
 let querAtualizarNome = false
-
-/* 🔥 INTENÇÃO DE ATUALIZAÇÃO */
-if(
-mensagem.match(/(meu nome agora é|corrigir meu nome|nome correto é|pode atualizar meu nome)/i)
-){
-  querAtualizarNome = true
-}
-
-/* 🔥 DETECTAR NOME */
-const regexNome = mensagem.match(
-/(?:meu nome completo é|meu nome é|me chamo|sou|aqui é|pode chamar de)\s+([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+){0,2})/i
-)
-
-const regexAqui = mensagem.match(
-/^([A-Za-zÀ-ÿ]+)\s+aqu[ií]/i
-)
-
-const regexSimples = mensagem.match(
-/^([A-Za-zÀ-ÿ]{3,})$/
-)
-
-/* 🔥 PRIORIDADE */
-if(regexNome){
-  nomeDetectado = regexNome[1]
-} 
-else if(regexAqui){
-  nomeDetectado = regexAqui[1]
-}
-else if(regexSimples){
-  nomeDetectado = regexSimples[1]
-}
-
-/* ================= VALIDAÇÃO FORTE ================= */
-
 function nomeValido(nome){
 
 if(!nome) return false
@@ -520,87 +820,167 @@ const proibidos = [
 const nomeLower = nome.toLowerCase()
 
 if(proibidos.includes(nomeLower)) return false
-
 if(nome.length < 3) return false
-
 if(nome.match(/[0-9]/)) return false
 
 return true
 }
+/* 🔥 EXTRAIR NOME DIRETO DA FRASE (COLE AQUI) */
 
-/* ================= DECISÃO ================= */
+const matchNome = mensagem.match(
+/(?:meu nome (?:é|agora é)|me chamo|atualiza(?:r)? meu nome(?: para)?|nome correto é)\s+(.+)/i
+)
+
+if(matchNome){
+  nomeDetectado = matchNome[1]
+    .split(/,|\.|!|\?/) // corta lixo depois do nome
+    [0]
+    .trim()
+
+  console.log("🔥 Nome extraído:", nomeDetectado)
+}
+
+
+
+
+
+  
+/* 🔥 INTENÇÃO DE ATUALIZAÇÃO (CORRIGIDA) */
+if(
+mensagem.match(/(meu nome|me chamo|atualiza(r)? meu nome|nome correto)/i)
+){
+  querAtualizarNome = true
+}
+
+/* ================= PRIORIDADE: ATUALIZAR NOME ================= */
 
 if(nomeDetectado && nomeValido(nomeDetectado)){
 
-nomeDetectado = nomeDetectado
-.split(" ")
-.map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
-.join(" ")
+  nomeDetectado = nomeDetectado
+  .split(" ")
+  .map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+  .join(" ")
 
-console.log("Nome detectado:", nomeDetectado)
+  console.log("✅ Nome detectado:", nomeDetectado)
 
-/* 🔥 REGRA DE ATUALIZAÇÃO */
-const deveAtualizar =
-!nomeMemoria || // não tem nome ainda
-querAtualizarNome || // cliente pediu
-nomeDetectado !== nomeMemoria // nome diferente
+  /* 🔥 NÃO DEPENDE MAIS DE INTENÇÃO */
+  const deveAtualizar =
+    !nomeMemoria ||
+    nomeDetectado !== nomeMemoria
 
-if(deveAtualizar){
+  if(deveAtualizar){
 
-console.log("ATUALIZANDO NOME NO BANCO")
+    console.log("🔥 ATUALIZANDO NOME NO SUPABASE")
 
-await supabase
-.from("memoria_clientes")
-.upsert({
-telefone:cliente,
-nome:nomeDetectado,
-ultima_interacao:new Date().toISOString()
-})
+    const { data, error } = await supabase
+    .from("memoria_clientes")
+    .upsert({
+      telefone:cliente,
+      nome:nomeDetectado,
+      ultima_interacao:new Date().toISOString()
+    },{ onConflict:"telefone" })
 
-nomeMemoria = nomeDetectado
+    if(error){
+      console.log("❌ ERRO:", error)
+    }else{
+      console.log("✅ SALVO:", data)
+    }
 
+    nomeMemoria = nomeDetectado
+
+    await fetch(url,{
+      method:"POST",
+      headers:{
+        Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({
+        messaging_product:"whatsapp",
+        to:cliente,
+        type:"text",
+        text:{ body:`Perfeito! Atualizei seu nome para ${nomeDetectado} 😊` }
+      })
+    })
+
+    return res.status(200).end()
+  }
+}
+
+
+  
+
+
+
+
+  
+/* ================= AGORA SIM CLASSIFICA ================= */
+
+let tipoMensagem = "neutro"
+
+if(tipo === "texto" && mensagem && mensagem.trim()){
+  tipoMensagem = await classificarMensagem(mensagem)
 }else{
-
-console.log("NOME IGNORADO (já existe e não pediu alteração)")
-
+  console.log("⚠️ Pulando classificação (mídia)")
 }
 
-}
-/* ================= BLOQUEIO: ATUALIZAÇÃO DE NOME ================= */
 
-if(
-  nomeDetectado &&
-  (
-    querAtualizarNome ||
-    mensagem.match(/(meu nome é|me chamo|nome correto é)/i)
-  )
-){
 
-console.log("🚀 ATUALIZAÇÃO DE NOME DETECTADA - PARANDO FLUXO")
+  
+console.log("CLASSIFICAÇÃO:", tipoMensagem)
+
+/* ================= PRIORIDADE MÁXIMA — CONTATO HUMANO ================= */
+
+const querGerente =
+texto.includes("gerente") ||
+texto.includes("responsavel") ||
+texto.includes("falar com alguem") ||
+texto.includes("atendimento humano") ||
+texto.includes("falar com atendente") ||
+texto.includes("contato") ||
+texto.includes("telefone") ||
+texto.includes("numero") ||
+texto.includes("whatsapp") ||
+texto.match(/\d{2}\s?\d{4,5}-?\d{4}/)
+
+if(querGerente){
+
+console.log("🚨 PRIORIDADE TOTAL → CONTATO HUMANO")
+
+const resposta = `Claro! 😊
+
+Você pode falar diretamente com um dos nossos gerentes:
+
+Dheure França
+📱 77 9 8129-3963
+
+Eles vão te atender com prioridade`
 
 await fetch(url,{
-  method:"POST",
-  headers:{
-    Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
-    "Content-Type":"application/json"
-  },
-  body:JSON.stringify({
-    messaging_product:"whatsapp",
-    to:cliente,
-    type:"text",
-    text:{
-      body:`Perfeito! Atualizei seu nome para ${nomeMemoria} 😊`
-    }
-  })
+method:"POST",
+headers:{
+Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
+messaging_product:"whatsapp",
+to:cliente,
+type:"text",
+text:{body:resposta}
+})
+})
+
+await supabase
+.from("conversas_whatsapp")
+.insert({
+telefone:cliente,
+mensagem:resposta,
+role:"assistant"
 })
 
 return res.status(200).end()
 }
-/* ================= AGORA SIM CLASSIFICA ================= */
 
-const tipoMensagem = await classificarMensagem(mensagem)
-
-console.log("CLASSIFICAÇÃO:", tipoMensagem)
+/* ================= CONTINUA NORMAL ================= */
 
 if(
   tipoMensagem === "reclamacao" ||
@@ -610,7 +990,8 @@ if(
   console.log("🚨 RECLAMAÇÃO OU FEEDBACK DETECTADO")
 
   /* BUSCAR NOME */
-const nomeCliente = nomeMemoria || nomeDetectado || "Não identificado"
+  const nomeCliente = nomeMemoria || nomeDetectado || "Não identificado"
+
   /* MENSAGEM PARA ADMIN */
   const alertaAdmin = `
 🚨 *ALERTA DE CLIENTE*
@@ -625,30 +1006,30 @@ const nomeCliente = nomeMemoria || nomeDetectado || "Não identificado"
 `
 
  /* ENVIAR PARA ADMINS */
-for(const admin of ADMINS){
+  for(const admin of ADMINS){
 
-  console.log("ENVIANDO PARA ADMIN:", admin)
+    console.log("ENVIANDO PARA ADMIN:", admin)
 
-  const resp = await fetch(url,{
-    method:"POST",
-    headers:{
-      Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
-      "Content-Type":"application/json"
-    },
-    body: JSON.stringify({
-      messaging_product:"whatsapp",
-      to: admin,
-      type:"text",
-      text:{ body: alertaAdmin }
+    const resp = await fetch(url,{
+      method:"POST",
+      headers:{
+        Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+        "Content-Type":"application/json"
+      },
+      body: JSON.stringify({
+        messaging_product:"whatsapp",
+        to: admin,
+        type:"text",
+        text:{ body: alertaAdmin }
+      })
     })
-  })
 
-  const data = await resp.json()
-  console.log("RESPOSTA WHATSAPP:", data)
+    const data = await resp.json()
+    console.log("RESPOSTA WHATSAPP:", data)
 
-}
+  }
 
-  /* SALVAR NO BANCO (OPCIONAL MAS RECOMENDO) */
+  /* SALVAR NO BANCO (FEEDBACK) */
   await supabase
   .from("feedback_clientes")
   .insert({
@@ -656,6 +1037,22 @@ for(const admin of ADMINS){
     nome: nomeCliente,
     mensagem: mensagem,
     tipo: tipoMensagem
+  })
+
+  /* 🔥 NOVO — SALVAR COMO CONVERSA NORMAL */
+  await supabase
+  .from("conversas_whatsapp")
+  .insert({
+    telefone:cliente,
+    mensagem:
+      mensagem ||
+      (tipo !== "texto" ? `[${tipo.toUpperCase()} RECEBIDO]` : ""),
+    tipo,
+    media_url,
+    nome_arquivo,
+    role:"user",
+    message_id: message_id,
+    status: "received"
   })
 
   /* RESPOSTA AUTOMÁTICA PARA CLIENTE */
@@ -875,13 +1272,12 @@ observacao: pedido.observacao || "",
 status: "novo"
 }])
 
-return res.status(200).end()
-/* limpar pedido pendente */
-
 await supabase
 .from("pedidos_pendentes")
 .delete()
 .eq("cliente_telefone",cliente)
+
+return res.status(200).end()
 }
 
 /* limpar estado conversa */
@@ -1092,9 +1488,11 @@ const querVideo =
 textoNormalizado.includes("video") ||
 textoNormalizado.includes("vídeo")
 
-const querFotos =
-textoNormalizado.includes("foto") ||
-textoNormalizado.includes("imagem")
+const pediuFotoEspecifica =
+textoNormalizado.includes("foto") &&
+(
+  textoNormalizado.length > 10 // evita "tem foto?"
+)
 
 const querEndereco =
 textoNormalizado.includes("onde fica") ||
@@ -1148,7 +1546,7 @@ const { data: jaProcessada } = await supabase
 .from("mensagens_processadas")
 .select("*")
 .eq("message_id", message_id)
-.single()
+.maybeSingle()
 
 if(jaProcessada){
 console.log("Mensagem duplicada ignorada")
@@ -1164,9 +1562,16 @@ await supabase
 await supabase
 .from("conversas_whatsapp")
 .insert({
-telefone:cliente,
-mensagem:mensagem,
-role:"user"
+  telefone:cliente,
+  mensagem:
+    mensagem ||
+    (tipo !== "texto" ? `[${tipo.toUpperCase()} RECEBIDO]` : ""),
+  tipo,
+  media_url,
+  nome_arquivo,
+  role:"user",
+  message_id: message_id, // 🔥 ESSENCIAL
+  status: "received"      // 🔥 ESSENCIAL
 })
 
 if(querEndereco){
@@ -1224,6 +1629,9 @@ resposta = `🎶 Música ao vivo amanhã no Mercatto:\n\n`
 else{
 resposta = `🎶 Música ao vivo hoje no Mercatto:\n\n`
 }
+
+
+  
 agendaDia.forEach(m=>{
 
 resposta += `🎤 ${m.cantor}\n`
@@ -1328,6 +1736,85 @@ return res.status(200).end()
 }
   
 
+/* ================= FOTO DE PRATO ================= */
+
+if(pediuFotoEspecifica){
+
+  console.log("📸 CLIENTE PEDIU FOTO")
+
+  const cardapio = await buscarCardapio()
+
+  const prato = encontrarPratoComFoto(cardapio, mensagem)
+
+  if(prato){
+
+    console.log("✅ FOTO ENCONTRADA:", prato.nome)
+
+    await fetch(url,{
+      method:"POST",
+      headers:{
+        Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+        "Content-Type":"application/json"
+      },
+      body: JSON.stringify({
+        messaging_product:"whatsapp",
+        to:cliente,
+        type:"image",
+        image:{
+          link:prato.foto_url,
+          caption:prato.nome
+        }
+      })
+    })
+
+    await supabase.from("conversas_whatsapp").insert({
+      telefone:cliente,
+      mensagem:`[FOTO ENVIADA: ${prato.nome}]`,
+      role:"assistant"
+    })
+
+    return res.status(200).end()
+
+}else{
+
+  console.log("❌ PRATO SEM FOTO → ENVIANDO VIDEO DO RESTAURANTE")
+
+  const videoRestaurante = "https://dxkszikemntfusfyrzos.supabase.co/storage/v1/object/public/MERCATTO/WhatsApp%20Video%202026-03-10%20at%2021.08.40.mp4"
+
+  await fetch(url,{
+    method:"POST",
+    headers:{
+      Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+      "Content-Type":"application/json"
+    },
+    body: JSON.stringify({
+      messaging_product:"whatsapp",
+      to:cliente,
+      type:"video",
+      video:{
+        link: videoRestaurante,
+        caption:"Olha um pouco do nosso ambiente 😍"
+      }
+    })
+  })
+
+  await supabase
+  .from("conversas_whatsapp")
+  .insert({
+    telefone:cliente,
+    mensagem:"[VIDEO DO RESTAURANTE ENVIADO - SEM FOTO]",
+    tipo:"video",
+    media_url: videoRestaurante,
+    role:"assistant"
+  })
+
+  return res.status(200).end()
+}
+
+}
+
+
+  
 
 
 /* ================= HISTÓRICO ================= */
@@ -1345,7 +1832,49 @@ const mensagens = (historico || [])
   role: m.role === "assistant" ? "assistant" : "user",
   content: m.mensagem
 }))
-.slice(-6)
+.slice(-15)
+
+/* ================= 🔥 BUSCAR APRENDIZADO ================= */
+
+const { data: aprendizado } = await supabase
+.from("aprendizado_bot")
+.select("*")
+.ilike("pergunta", `%${mensagem}%`)
+.limit(1)
+
+if(aprendizado && aprendizado.length){
+
+  console.log("🧠 RESPOSTA VINDO DO APRENDIZADO")
+
+  const resposta = aprendizado[0].resposta
+
+  await fetch(url,{
+    method:"POST",
+    headers:{
+      Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+      "Content-Type":"application/json"
+    },
+    body:JSON.stringify({
+      messaging_product:"whatsapp",
+      to:cliente,
+      type:"text",
+      text:{ body: resposta }
+    })
+  })
+
+  await supabase
+  .from("conversas_whatsapp")
+  .insert({
+    telefone:cliente,
+    mensagem:resposta,
+    role:"assistant"
+  })
+
+  return res.status(200).end()
+}
+
+
+
   
 if(assuntoMusica){
 mensagens.unshift({
@@ -1391,6 +1920,57 @@ CATEGORIA: ${item.tipo || "geral"}
 }
 
 
+// 🔥 CORREÇÃO CRÍTICA — DEFINIR DATA ANTES
+
+const agoraSistema = new Date()
+
+const agoraBahiaFix = new Date(
+  agoraSistema.toLocaleString("en-US",{ timeZone:"America/Bahia" })
+)
+
+const dataAtualISO = agoraBahiaFix.toISOString().split("T")[0]
+
+console.log("📅 DATA RESERVAS:", dataAtualISO)
+
+
+  
+/* ================= BUSCAR RESERVAS DO DIA ================= */
+
+let reservasHojeTexto = "SEM RESERVAS"
+
+try {
+
+  const { data: reservasHoje } = await supabase
+    .from("reservas_mercatto")
+    .select("*")
+    .gte("datahora", dataAtualISO + "T00:00")
+    .lte("datahora", dataAtualISO + "T23:59")
+
+  console.log("📊 RESERVAS DO DIA:", reservasHoje)
+
+  if (reservasHoje && reservasHoje.length) {
+
+    reservasHojeTexto = ""
+
+    reservasHoje.forEach(r => {
+
+      const hora = r.datahora?.split("T")[1]?.substring(0,5) || "--:--"
+
+      reservasHojeTexto += `
+NOME: ${r.nome}
+SALA: ${r.mesa}
+HORA: ${hora}
+STATUS: ${r.status}
+-------------------
+`
+
+    })
+
+  }
+
+} catch (err) {
+  console.log("❌ ERRO AO BUSCAR RESERVAS:", err)
+}
   
 /* ================= OPENAI ================= */
 
@@ -1505,8 +2085,11 @@ Regras importantes:
 - Utilize apenas pratos desta lista.
 - Nunca invente pratos.
 - Se o cliente perguntar preço use PRECO.
-- Se pedir foto de um prato responda com ENVIAR_FOTO_PRATO.
-`
+- Só ofereça foto se o cliente pedir explicitamente
+- Só ofereça foto de UM prato específico
+- Nunca ofereça foto de vários pratos
+- Nunca invente imagem
+- Se não tiver foto, diga que não possui`
 },
 
 
@@ -1527,7 +2110,31 @@ Regras:
 `
 },
 
+{
+role:"system",
+content:`
+RESERVAS REAIS DO DIA:
 
+${reservasHojeTexto}
+
+REGRAS CRÍTICAS:
+
+- Sala VIP 1 = Sala Paulo Augusto 1
+- Sala VIP 2 = Sala Paulo Augusto 2
+
+- São a MESMA sala com nomes diferentes
+- Nunca tratar como salas diferentes
+
+- Sempre verificar conflito de horário
+- Considerar duração de 4h30 + 1h bloqueio
+
+- Nunca dizer que tem vaga sem verificar aqui
+`
+},
+
+
+
+  
 
   
 ...mensagens
@@ -1537,7 +2144,117 @@ Regras:
 })
 
 resposta = completion.choices[0].message.content
+/* 🚨 BLOQUEIO TOTAL DE ALERTA */
 
+if(resposta.includes("🚨 DÚVIDA DO CLIENTE")){
+
+  const { data: novaDuvida } = await supabase
+  .from("duvidas_pendentes")
+  .insert({
+    telefone: cliente,
+    pergunta: mensagem
+  })
+  .select()
+  .single()
+
+  const alerta = `
+🚨 *DÚVIDA DO CLIENTE*
+
+🆔 ID: ${novaDuvida.id}
+
+📱 Telefone: ${cliente}
+
+💬 Pergunta:
+"${mensagem}"
+
+
+📄 Histórico:
+${resumo}
+`
+
+  for(const admin of ADMINS){
+    await fetch(url,{
+      method:"POST",
+      headers:{
+        Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({
+        messaging_product:"whatsapp",
+        to: admin,
+        type:"text",
+        text:{ body: alerta }
+      })
+    })
+  }
+
+  /* 🚫 BLOQUEIA ENVIO PARA CLIENTE */
+  return res.status(200).end()
+}
+  
+
+/* ================= 🔥 DETECTAR SE NÃO SABE ================= */
+
+const naoSabe =
+!resposta ||
+resposta.length < 5 ||
+resposta.toLowerCase().includes("não sei") ||
+resposta.toLowerCase().includes("não tenho") ||
+resposta.toLowerCase().includes("não encontrei")
+
+if(naoSabe){
+/* 🔥 SALVAR DÚVIDA */
+const { data: novaDuvida } = await supabase
+.from("duvidas_pendentes")
+.insert({
+  telefone: cliente,
+  pergunta: mensagem
+})
+.select()
+.single()
+  console.log("🚨 IA NÃO SABE → ESCALANDO")
+
+  const resumo = mensagens
+    .map(m => `${m.role}: ${m.content}`)
+    .join("\n")
+
+const alerta = `
+🚨 *DÚVIDA DO CLIENTE*
+
+🆔 ID: ${novaDuvida.id}
+
+📱 Telefone: ${cliente}
+
+💬 Pergunta:
+"${mensagem}"
+
+
+📄 Histórico:
+${resumo}
+`
+
+  for(const admin of ADMINS){
+    await fetch(url,{
+      method:"POST",
+      headers:{
+        Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({
+        messaging_product:"whatsapp",
+        to: admin,
+        type:"text",
+        text:{ body: alerta }
+      })
+    })
+  }
+
+  /* 🔥 NÃO RESPONDE O CLIENTE */
+  return res.status(200).end()
+}
+
+
+  
 console.log("RESPOSTA IA COMPLETA:", resposta)
 
 
@@ -1551,26 +2268,60 @@ if(templateMatch){
 
   const templateNome = templateMatch[1]
 
-  /* ✅ COLE AQUI */
-  const TEMPLATE_IDIOMAS = {
-    reserva_especial: "en",
-    confirmacao_reserva: "pt_BR",
-    lembrete_reserva: "pt_BR",
-    confirmacao_pedido: "pt_BR",
-    video_mercatto: "pt_BR"
-  }
+const TEMPLATE_IDIOMAS = {
+  confirmao_de_reserva: "en_US",
+  reserva_especial: "en_US",
+  hello_world: "en_US"
+}
 
-  const idiomaTemplate = TEMPLATE_IDIOMAS[templateNome] || "pt_BR"
+const idiomaTemplate = TEMPLATE_IDIOMAS[templateNome] || "pt_BR"
 
-
-  
   console.log("TENTANDO ENVIAR TEMPLATE:",templateNome)
 
   if(!TEMPLATES_PERMITIDOS.includes(templateNome)){
     console.log("Template não permitido:",templateNome)
   }else{
 
-  const resp = await fetch(url,{
+let templatePayload = null
+
+/* ===== TEMPLATE CONFIRMAÇÃO ===== */
+if(templateNome === "confirmao_de_reserva"){
+  templatePayload = {
+    name: templateNome,
+    language:{ code: idiomaTemplate }, // ✅ CORRIGIDO
+    components:[
+      {
+        type:"body",
+        parameters:[
+          { type:"text", text: nomeMemoria || "Cliente" },
+          { type:"text", text: "20/03" },
+          { type:"text", text: "20:00" },
+          { type:"text", text: "4" }
+        ]
+      }
+    ]
+  }
+}
+
+/* ===== TEMPLATE VIDEO ===== */
+else if(templateNome === "reserva_especial"){
+templatePayload = {
+  name: templateNome,
+  language:{ code: idiomaTemplate } // ✅ DINÂMICO
+}
+}
+
+/* ===== TEMPLATE SIMPLES ===== */
+else if(templateNome === "hello_world"){
+  templatePayload = {
+    name: templateNome,
+    language:{ code: idiomaTemplate }
+  }
+}
+
+/* ===== ENVIO ===== */
+
+const resp = await fetch(url,{
   method:"POST",
   headers:{
     Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
@@ -1580,20 +2331,16 @@ if(templateMatch){
     messaging_product:"whatsapp",
     to:cliente,
     type:"template",
-    template:{
-      name:templateNome,
-      language:{ code: idiomaTemplate }
-    }
+    template: templatePayload
   })
 })
 
-const data = await resp.json()
+    const data = await resp.json()
 
-console.log("📩 RESPOSTA META TEMPLATE:", data)
+    console.log("📩 RESPOSTA META TEMPLATE:", data)
 
     console.log("✅ TEMPLATE ENVIADO")
 
-    // 🔥 ESSA LINHA RESOLVE TUDO
     return res.status(200).end()
   }
 
@@ -1605,8 +2352,18 @@ console.log("📩 RESPOSTA META TEMPLATE:", data)
 
 
 
-  
-if(resposta.includes("ENVIAR_FOTOS")){
+
+/* ===== SALA VIP 1 ===== */
+
+if(resposta.includes("ENVIAR_FOTOS_VIP1")){
+
+const fotos = [
+"https://dxkszikemntfusfyrzos.supabase.co/storage/v1/object/public/MERCATTO/salas_vip/sala1.jpg",
+"https://link2.jpg",
+"https://link3.jpg"
+]
+
+for(const foto of fotos){
 
 await fetch(url,{
 method:"POST",
@@ -1619,8 +2376,97 @@ messaging_product:"whatsapp",
 to:cliente,
 type:"image",
 image:{
-link:"https://dxkszikemntfusfyrzos.supabase.co/storage/v1/object/public/MERCATTO/images%20(1).jpg",
-caption:"Mercatto Delícia"
+link:foto,
+caption:"Sala VIP 1 • Mercatto Delícia"
+}
+})
+})
+
+}
+
+await supabase
+.from("conversas_whatsapp")
+.insert({
+telefone:cliente,
+mensagem:"[FOTOS SALA VIP 1 ENVIADAS]",
+role:"assistant"
+})
+
+resposta = resposta.replace(/ENVIAR_FOTOS_VIP1/g,"").trim()
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+/* ===== SALA VIP 2 ===== */
+
+if(resposta.includes("ENVIAR_FOTOS_VIP2")){
+
+const fotos = [
+"https://ehxrrpsiksceljmhsfxk.supabase.co/storage/v1/object/public/MERCATTO/WhatsApp%20Image%202026-04-02%20at%2010.28.26.jpeg",
+"https://ehxrrpsiksceljmhsfxk.supabase.co/storage/v1/object/public/MERCATTO/WhatsApp%20Video%202026-03-27%20at%2011.14.47.mp4"
+]
+
+for(const foto of fotos){
+
+await fetch(url,{
+method:"POST",
+headers:{
+Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+"Content-Type":"application/json"
+},
+body: JSON.stringify({
+messaging_product:"whatsapp",
+to:cliente,
+type:"image",
+image:{
+link:foto,
+caption:"Sala VIP 2 • Mercatto Delícia"
+}
+})
+})
+
+}
+
+await supabase
+.from("conversas_whatsapp")
+.insert({
+telefone:cliente,
+mensagem:"[FOTOS SALA VIP 2 ENVIADAS]",
+role:"assistant"
+})
+
+resposta = resposta.replace(/ENVIAR_FOTOS_VIP2/g,"").trim()
+
+}
+
+
+/* ===== VIDEO SALA VIP 2 ===== */
+
+if(resposta.includes("ENVIAR_VIDEO_VIP2")){
+
+await fetch(url,{
+method:"POST",
+headers:{
+Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+"Content-Type":"application/json"
+},
+body: JSON.stringify({
+messaging_product:"whatsapp",
+to:cliente,
+type:"video",
+video:{
+link:"https://ehxrrpsiksceljmhsfxk.supabase.co/storage/v1/object/public/MERCATTO/WhatsApp%20Video%202026-03-27%20at%2011.14.47.mp4",
+caption:"Sala VIP 2 • Mercatto Delícia"
 }
 })
 })
@@ -1629,14 +2475,26 @@ await supabase
 .from("conversas_whatsapp")
 .insert({
 telefone:cliente,
-mensagem:"[FOTOS DO RESTAURANTE ENVIADAS]",
+mensagem:"[VIDEO SALA VIP 2 ENVIADO]",
 role:"assistant"
 })
 
-resposta = resposta.replace(/ENVIAR_FOTOS/g,"").trim()
+resposta = resposta.replace(/ENVIAR_VIDEO_VIP2/g,"").trim()
 
 }
-if(resposta.includes("ENVIAR_FOTOS_SALA_VIP")){
+
+
+
+/* ===== SACADA ===== */
+
+if(resposta.includes("ENVIAR_FOTOS_SACADA")){
+
+const fotos = [
+"https://ehxrrpsiksceljmhsfxk.supabase.co/storage/v1/object/public/MERCATTO/WhatsApp%20Image%202026-03-27%20at%2011.21.01.jpeg",
+"https://ehxrrpsiksceljmhsfxk.supabase.co/storage/v1/object/public/MERCATTO/WhatsApp%20Image%202026-03-27%20at%2011.24.01.jpeg"
+]
+
+for(const foto of fotos){
 
 await fetch(url,{
 method:"POST",
@@ -1649,11 +2507,42 @@ messaging_product:"whatsapp",
 to:cliente,
 type:"image",
 image:{
-link:"https://dxkszikemntfusfyrzos.supabase.co/storage/v1/object/public/MERCATTO/salas_vip/sala1.jpg",
-caption:"Sala VIP Mercatto Delícia"
+link:foto,
+caption:"Sacada • Mercatto Delícia"
 }
 })
 })
+
+}
+
+await supabase
+.from("conversas_whatsapp")
+.insert({
+telefone:cliente,
+mensagem:"[FOTOS SACADA ENVIADAS]",
+role:"assistant"
+})
+
+resposta = resposta.replace(/ENVIAR_FOTOS_SACADA/g,"").trim()
+
+}
+
+
+
+
+
+
+
+  /* ===== SALÃO ===== */
+
+if(resposta.includes("ENVIAR_FOTOS_SALAO")){
+
+const fotos = [
+"https://link-salao1.jpg",
+"https://link-salao2.jpg"
+]
+
+for(const foto of fotos){
 
 await fetch(url,{
 method:"POST",
@@ -1666,15 +2555,303 @@ messaging_product:"whatsapp",
 to:cliente,
 type:"image",
 image:{
-link:"https://dxkszikemntfusfyrzos.supabase.co/storage/v1/object/public/MERCATTO/salas_vip/sala2.jpg",
-caption:"Ambiente da Sala VIP"
+link:foto,
+caption:"Salão • Mercatto Delícia"
 }
 })
 })
 
-resposta = resposta.replace(/ENVIAR_FOTOS_SALA_VIP/g,"").trim()
+}
+
+await supabase
+.from("conversas_whatsapp")
+.insert({
+telefone:cliente,
+mensagem:"[FOTOS SALÃO ENVIADAS]",
+role:"assistant"
+})
+
+resposta = resposta.replace(/ENVIAR_FOTOS_SALAO/g,"").trim()
 
 }
+
+
+
+
+
+
+
+  /* ===== VIDEO SALA VIP ===== */
+
+if(resposta.includes("ENVIAR_VIDEO_VIP")){
+
+await fetch(url,{
+method:"POST",
+headers:{
+Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+"Content-Type":"application/json"
+},
+body: JSON.stringify({
+messaging_product:"whatsapp",
+to:cliente,
+type:"video",
+video:{
+link:"https://seu-video.mp4",
+caption:"Sala VIP • Mercatto Delícia"
+}
+})
+})
+
+resposta = resposta.replace(/ENVIAR_VIDEO_VIP/g,"").trim()
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* ===== PROMO HAPPY HOUR ===== */
+
+if(resposta.includes("ENVIAR_PROMO_HAPPY")){
+
+const midias = [
+"https://dxkszikemntfusfyrzos.supabase.co/storage/v1/object/public/MERCATTO/WhatsApp%20Image%202026-04-02%20at%2010.27.52.jpeg"
+]
+
+for(const midia of midias){
+
+await fetch(url,{
+method:"POST",
+headers:{
+Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+"Content-Type":"application/json"
+},
+body: JSON.stringify({
+messaging_product:"whatsapp",
+to:cliente,
+type:"image",
+image:{
+link:midia,
+caption:"🍻 Happy Hour • Todos os dias das 17h às 20h"
+}
+})
+})
+
+}
+
+await supabase.from("conversas_whatsapp").insert({
+telefone:cliente,
+mensagem:"[PROMO HAPPY HOUR ENVIADA]",
+role:"assistant"
+})
+
+// 🔥 ADICIONA ISSO
+await supabase
+.from("controle_envio")
+.upsert({
+  telefone: cliente,
+  tipo: "promo",
+  data: getHojeBahia()
+}, { onConflict: "telefone,tipo,data" })
+resposta = resposta.replace(/ENVIAR_PROMO_HAPPY/g,"").trim()
+}
+
+
+
+/* ===== PROMO RODIZIO ORIENTAL ===== */
+
+if(resposta.includes("ENVIAR_PROMO_ORIENTAL")){
+
+const midias = [
+"https://dxkszikemntfusfyrzos.supabase.co/storage/v1/object/public/MERCATTO/WhatsApp%20Image%202026-04-02%20at%2010.28.03.jpeg"
+]
+
+for(const midia of midias){
+
+await fetch(url,{
+method:"POST",
+headers:{
+Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+"Content-Type":"application/json"
+},
+body: JSON.stringify({
+messaging_product:"whatsapp",
+to:cliente,
+type:"image",
+image:{
+link:midia,
+caption:"🍣 Rodízio Oriental • Domingo a partir das 19h"
+}
+})
+})
+
+}
+
+await supabase.from("conversas_whatsapp").insert({
+telefone:cliente,
+mensagem:"[PROMO ORIENTAL ENVIADA]",
+role:"assistant"
+})
+
+// 🔥 ADICIONA ISSO
+await supabase
+.from("controle_envio")
+.upsert({
+  telefone: cliente,
+  tipo: "promo",
+  data: getHojeBahia()
+}, { onConflict: "telefone,tipo,data" })
+resposta = resposta.replace(/ENVIAR_PROMO_ORIENTAL/g,"").trim()
+}
+
+
+
+
+
+  
+
+/* ===== PROMO RODIZIO ITALIANO ===== */
+
+if(resposta.includes("ENVIAR_PROMO_ITALIANO")){
+
+const hoje = new Date().toLocaleString("pt-BR",{
+timeZone:"America/Bahia",
+weekday:"long"
+}).toLowerCase()
+
+if(true){
+const midias = [
+"https://dxkszikemntfusfyrzos.supabase.co/storage/v1/object/public/MERCATTO/WhatsApp%20Image%202026-04-02%20at%2010.28.26.jpeg"
+]
+
+for(const midia of midias){
+
+await fetch(url,{
+method:"POST",
+headers:{
+Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+"Content-Type":"application/json"
+},
+body: JSON.stringify({
+messaging_product:"whatsapp",
+to:cliente,
+type:"image",
+image:{
+link:midia,
+caption:"🍝 Rodízio Italiano • Toda quinta"
+}
+})
+})
+
+}
+
+await supabase.from("conversas_whatsapp").insert({
+telefone:cliente,
+mensagem:"[PROMO ITALIANO ENVIADA]",
+role:"assistant"
+})
+
+// 🔥 ADICIONA ISSO
+await supabase
+.from("controle_envio")
+.upsert({
+  telefone: cliente,
+  tipo: "promo",
+  data: getHojeBahia()
+}, { onConflict: "telefone,tipo,data" })
+}else{
+
+await fetch(url,{
+method:"POST",
+headers:{
+Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+"Content-Type":"application/json"
+},
+body: JSON.stringify({
+messaging_product:"whatsapp",
+to:cliente,
+type:"text",
+text:{
+body:"O rodízio italiano acontece às quintas 🍝"
+}
+})
+})
+
+}
+
+resposta = resposta.replace(/ENVIAR_PROMO_ITALIANO/g,"").trim()
+}
+
+
+
+  
+
+// 🔥 CARDÁPIO EM PDF
+
+
+  if(resposta.includes("ENVIAR_CARDAPIO")){
+
+  const pdfLink = "https://ehxrrpsiksceljmhsfxk.supabase.co/storage/v1/object/public/MERCATTO/CARDAPIO.pdf"
+
+  await fetch(url,{
+    method:"POST",
+    headers:{
+      Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+      "Content-Type":"application/json"
+    },
+    body: JSON.stringify({
+      messaging_product:"whatsapp",
+      to:cliente,
+      type:"document",
+      document:{
+        link: pdfLink,
+        filename:"Cardápio Mercatto Delícia.pdf"
+      }
+    })
+  })
+
+  await supabase
+  .from("conversas_whatsapp")
+  .insert({
+    telefone:cliente,
+    mensagem:"[CARDÁPIO PDF ENVIADO]",
+    role:"assistant"
+  })
+
+  resposta = resposta.replace(/ENVIAR_CARDAPIO/g,"").trim()
+}
+
+  
+
+
+
+
+
+
+
+  
+
+
+
+  
 
 if(resposta.includes("ENVIAR_POSTER")){
 
@@ -1735,9 +2912,17 @@ if(fotoMatch){
 
 const nomePratoIA = fotoMatch[1].trim()
 
-const prato = cardapio.find(p =>
-normalizar(p.nome).includes(normalizar(nomePratoIA))
-)
+const nomeBusca = normalizar(nomePratoIA)
+
+const prato = cardapio.find(p => {
+  const nome = normalizar(p.nome)
+
+  return (
+    nome === nomeBusca ||                 // match exato
+    nome.includes(nomeBusca) ||           // nome contém busca
+    nomeBusca.includes(nome)              // busca contém nome
+  )
+})
 
 if(prato && prato.foto_url){
 
@@ -2037,8 +3222,10 @@ pessoas: parseInt(reservaVip.pessoas) || 1,
 mesa: salaBanco,
 cardapio: "",
 
-observacoes: "Reserva sala VIP via WhatsApp",
-
+observacoes: reservaVip.observacoes && reservaVip.observacoes.trim() !== ""
+  ? reservaVip.observacoes
+  : "Reserva sala VIP via WhatsApp",
+  
 datahora: datahora,
 
 valorEstimado: 0,
@@ -2050,8 +3237,7 @@ banco: "",
 comandaindividual: false,
 comandaIndividual: reservaVip.comandaIndividual || "Não",
 
-origem: "whatsapp"
-
+origem: "whatsapp",
 })
 
 if(error){
@@ -2231,7 +3417,9 @@ mesa:mesa,
 cardapio:"",
 comandaIndividual: reserva.comandaIndividual || "Não",
   datahora:datahora,
-observacoes:"Reserva via Automação WhatsApp",
+observacoes: reserva.observacoes && reserva.observacoes.trim() !== ""
+  ? reserva.observacoes
+  : "",
 valorEstimado:0,
 pagamentoAntecipado:0,
 banco:"",
@@ -2246,6 +3434,12 @@ const [anoR, mesR, diaR] = dataISO.split("-")
 
 const dataClienteReserva = `${diaR}/${mesR}/${anoR}`
 
+let textoObs = ""
+
+if(reserva.observacoes && reserva.observacoes.trim() !== ""){
+  textoObs = `\n📝 Observação: ${reserva.observacoes}`
+}
+
 resposta =
 `✅ *Reserva confirmada!*
 
@@ -2253,7 +3447,7 @@ Nome: ${reserva.nome}
 Pessoas: ${reserva.pessoas}
 Data: ${dataClienteReserva}
 Hora: ${reserva.hora}
-Área: ${mesa}
+Área: ${mesa}${textoObs}
 
 📍 Mercatto Delícia
 Avenida Rui Barbosa 1264
@@ -2269,15 +3463,59 @@ Aguardamos você!`
 console.log("Erro ao processar reserva:",e)
 
 }
+const { data: ultimaMsg } = await supabase
+.from("conversas_whatsapp")
+.select("mensagem")
+.eq("telefone", cliente)
+.eq("role", "assistant")
+.order("created_at", { ascending: false })
+.limit(1)
+.maybeSingle()
 
+const temMidia =
+resposta.includes("ENVIAR_CARDAPIO") ||
+resposta.includes("ENVIAR_FOTOS") ||
+resposta.includes("ENVIAR_VIDEO") ||
+resposta.includes("ENVIAR_POSTER")
+
+if(
+  ultimaMsg?.mensagem === resposta &&
+  !temMidia
+){
+  console.log("🚫 BLOQUEADO: TEXTO REPETIDO")
+  return res.status(200).end()
+}
 /* ================= SALVAR RESPOSTA ================= */
+
+
+
+  
+const envio = await fetch(url,{
+method:"POST",
+headers:{
+Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
+messaging_product:"whatsapp",
+to:cliente,
+type:"text",
+text:{body:resposta}
+})
+})
+
+const retorno = await envio.json()
+
+const messageId = retorno?.messages?.[0]?.id
 
 await supabase
 .from("conversas_whatsapp")
 .insert({
-telefone:cliente,
-mensagem:resposta,
-role:"assistant"
+  telefone:cliente,
+  mensagem:resposta,
+  role:"assistant",
+  message_id: messageId, // 🔥 ESSENCIAL
+  status:"sent"          // 🔥 ESSENCIAL
 })
 /* ================= TEMPO NATURAL ================= */
 
@@ -2288,23 +3526,7 @@ Math.max(resposta.length * 35, 1500), // mínimo 1.5s
 
 await new Promise(resolve => setTimeout(resolve, tempoDigitando))
 
-/* ================= ENVIAR WHATSAPP ================= */
 
-await fetch(url,{
-method:"POST",
-headers:{
-Authorization:`Bearer ${process.env.WHATSAPP_TOKEN}`,
-"Content-Type":"application/json"
-},
-body:JSON.stringify({
-messaging_product:"whatsapp",
-to:cliente,
-type:"text",
-text:{
-body:resposta
-}
-})
-})
 
 }catch(error){
 
