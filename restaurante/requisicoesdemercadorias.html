@@ -157,15 +157,16 @@ display:none;
 <label>Setor</label>
 <select id="setor" disabled></select>
 
+<div id="doseArea" class="hidden">
+  <label>Dose</label>
+  <div class="unidades">
+    <button id="doseBtn" onclick="toggleDose()">NÃO</button>
+  </div>
+</div>
+
 <label>Produto</label>
 <input id="produto" placeholder="Digite o produto">
 <div id="listaProdutos"></div>
- 
-<!-- ✅ AQUI -->
-<label>Dose</label>
-<div class="unidades">
-  <button id="doseBtn" onclick="toggleDose()">NÃO</button>
-</div>
  
 <label>Quantidade</label>
 <input id="quantidade" type="number" min="1" step="1">
@@ -272,6 +273,12 @@ dadosUsuario = saved;
 
 solicitante.value = saved.nome;
 setor.innerHTML = `<option>${saved.setor}</option>`;
+ if(saved.setor.toUpperCase().includes("BAR")){
+  document.getElementById("doseArea").classList.remove("hidden");
+}else{
+  document.getElementById("doseArea").classList.add("hidden");
+  dose = false;
+}
 
 setUnidade("UN");
 
