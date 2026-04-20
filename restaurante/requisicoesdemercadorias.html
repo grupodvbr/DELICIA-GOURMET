@@ -160,7 +160,13 @@ display:none;
 <label>Produto</label>
 <input id="produto" placeholder="Digite o produto">
 <div id="listaProdutos"></div>
-
+ 
+<!-- ✅ AQUI -->
+<label>Dose</label>
+<div class="unidades">
+  <button id="doseBtn" onclick="toggleDose()">NÃO</button>
+</div>
+ 
 <label>Quantidade</label>
 <input id="quantidade" type="number" min="1" step="1">
 
@@ -172,6 +178,7 @@ display:none;
 <button onclick="setUnidade('CX')" id="uCX">CX</button>
 <button onclick="setUnidade('PC')" id="uPC">PC</button>
 </div>
+ 
 
 <label>Observações</label>
 <textarea id="obs"></textarea>
@@ -204,6 +211,7 @@ const sb = supabase.createClient(
 );
 
 let unidade="UN";
+let dose = false;
 let usuarioAtual=null;
 let dadosUsuario=null;
 let produtoSelecionado = false;
@@ -321,6 +329,24 @@ listaProdutos.innerHTML+=`
 });
 };
 
+
+
+
+
+
+ function toggleDose(){
+  dose = !dose;
+
+  const btn = document.getElementById("doseBtn");
+
+  if(dose){
+    btn.classList.add("active");
+    btn.innerText = "SIM";
+  }else{
+    btn.classList.remove("active");
+    btn.innerText = "NÃO";
+  }
+}
 function selectProduto(nome){
 produto.value=nome;
 listaProdutos.innerHTML="";
@@ -408,7 +434,8 @@ unidade,
 setor:dadosUsuario.setor,
 usuario:usuarioAtual,
 observacoes:obs.value,
-status:"PENDENTE"
+status:"PENDENTE",
+dose: dose
 });
 
 overlay.style.display="none";
@@ -444,6 +471,10 @@ function limparCampos(){
 produto.value="";
 quantidade.value="";
 obs.value="";
+
+dose = false;
+document.getElementById("doseBtn").classList.remove("active");
+document.getElementById("doseBtn").innerText = "NÃO";
 }
 </script>
 
